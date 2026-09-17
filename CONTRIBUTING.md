@@ -6,7 +6,7 @@ Small, focused pull requests are welcome. Please keep the codebase small: prefer
 
 ```sh
 pnpm install
-cp .env.example .env   # fill in Supabase URL + anon key (optional for solo/offline play)
+cp .env.example .env   # fill in Supabase URL + publishable key (optional for solo/offline play)
 pnpm dev               # Vite on :5173, Worker + Durable Object on :8787
 ```
 
