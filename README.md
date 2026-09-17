@@ -60,7 +60,7 @@ pnpm check
 
 ```sh
 pnpm exec wrangler login
-pnpm deploy       # builds and ships static assets + Worker + Durable Object
+pnpm run deploy       # builds and ships static assets + Worker + Durable Object
 ```
 
 Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY` (the publishable key) as GitHub secrets; `.github/workflows/deploy.yml` deploys on push to `main`.
