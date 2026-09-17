@@ -118,3 +118,46 @@ export async function fileToText(file: File): Promise<string> {
   }
   return file.text();
 }
+
+export interface Chunk {
+  round: string | null; // e.g. "Round 3", "Semifinal", null when the packet has no round headers
+  text: string;
+}
+
+const ROUND_LINE =
+  /^\s*(?:[A-Za-z]+\s+){0,3}(?:round|rd\.?)\s*[#:.-]?\s*(\d{1,2}|[IVX]{1,5}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\b[^?]{0,30}$|^\s*(?:semi-?finals?|finals?|preliminar(?:y|ies)\s*\d*|quarter-?finals?)\s*(?:round)?\s*$/i;
+
+/**
+ * Split a packet into rounds. Many PDFs hold a whole division (8+ rounds); each round becomes
+ * its own question set. Returns one chunk (round = null) when fewer than two headers are found.
+ * Text before the first header (cover page, metadata) is returned separately as `preamble`.
+ */
+export function splitRounds(text: string): { preamble: string; chunks: Chunk[] } {
+  const lines = text.replace(/\r/g, '').split('\n');
+  const heads: { i: number; label: string }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (l.length <= 60 && ROUND_LINE.test(l) && !TOSSUP.test(l)) heads.push({ i, label: titleCase(l) });
+  }
+  // Same label repeated back-to-back (e.g. page headers) collapses into one chunk.
+  const distinct = heads.filter((h, k) => k === 0 || h.label !== heads[k - 1].label);
+  if (distinct.length < 2) return { preamble: '', chunks: [{ round: null, text }] };
+  const preamble = lines.slice(0, distinct[0].i).join('\n').trim();
+  const headIdx = new Set(heads.map((h) => h.i)); // drop repeated page headers inside a round
+  const chunks = distinct.map((h, k) => ({
+    round: h.label,
+    text: lines
+      .slice(h.i + 1, distinct[k + 1]?.i ?? lines.length)
+      .filter((_, j) => !headIdx.has(h.i + 1 + j))
+      .join('\n')
+      .trim(),
+  }));
+  return { preamble, chunks: chunks.filter((c) => c.text) };
+}
+
+const titleCase = (s: string) =>
+  s
+    .replace(/\s+/g, ' ')
+    .replace(/[.:#-]+$/, '')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());

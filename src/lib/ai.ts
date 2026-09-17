@@ -44,13 +44,25 @@ export interface ParseResult extends ParsedPacket {
   usage: { input: number; output: number };
 }
 
-export async function aiParse(text: string, apiKey: string, model: AiModel): Promise<ParseResult> {
+/** `context` is front matter (cover page) that carries tournament/level/year for every round. */
+export async function aiParse(
+  text: string,
+  apiKey: string,
+  model: AiModel,
+  context = '',
+): Promise<ParseResult> {
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
   const stream = client.messages.stream({
     model,
     max_tokens: 32000,
     system: SYSTEM,
-    messages: [{ role: 'user', content: `Packet text:\n\n${text}` }],
+    messages: [
+      {
+        role: 'user',
+        content:
+          (context ? `Packet front matter:\n\n${context.slice(0, 3000)}\n\n` : '') + `Round text:\n\n${text}`,
+      },
+    ],
     output_config: { format: zodOutputFormat(Parsed) },
   });
   const msg = await stream.finalMessage();

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Session } from '@supabase/supabase-js';
+  import Brand from '../lib/Brand.svelte';
   import {
     configured,
     supabase,
@@ -10,30 +11,21 @@
     LEVELS,
     CATEGORIES,
   } from '../lib/supabase';
-  import Brand from '../lib/Brand.svelte';
-  import { fileToText, parseText } from '../lib/parse';
+  import { fileToText, parseText, splitRounds, type Chunk } from '../lib/parse';
   import { aiKey, setAiKey, aiModel, setAiModel } from '../lib/store';
   import { AI_MODELS, type AiModel } from '../lib/ai';
-  import type { Question, QuestionSet } from '../lib/types';
+  import type { Level, Question, QuestionSet } from '../lib/types';
 
+  // ---- auth & library --------------------------------------------------------------------
   let session = $state<Session | null>(null);
   let email = $state('');
   let notice = $state('');
-  let busy = $state(false);
   let mine = $state<QuestionSet[]>([]);
-  let raw = $state('');
-  let showRaw = $state(false);
-  let set = $state<QuestionSet | null>(null);
-  let key = $state(aiKey());
-  let model = $state<AiModel>(aiModel() as AiModel);
-  let aiNote = $state('');
-
   supabase?.auth.getSession().then(({ data }) => (session = data.session));
   supabase?.auth.onAuthStateChange((_e, s) => (session = s));
   $effect(() => {
     if (session) loadMine();
   });
-
   async function loadMine() {
     try {
       mine = await listSets(session!.user.id);
@@ -51,63 +43,169 @@
     notice = error ? error.message : `Check ${email} for a sign-in link.`;
   }
 
+  // ---- import pipeline: pick → parse → review --------------------------------------------
+  type Status = 'queued' | 'parsing' | 'done' | 'error';
+  interface Job extends Chunk {
+    status: Status;
+    note: string;
+    set?: QuestionSet;
+  }
+  interface Meta {
+    tournament: string | null;
+    year: number | null;
+    level: Level | null;
+    region: string | null;
+  }
+  let stage = $state<'pick' | 'parse' | 'review'>('pick');
+  let source = $state(''); // file name or "Pasted text"
+  let raw = $state('');
+  let preamble = $state('');
+  let jobs = $state<Job[]>([]);
+  let meta = $state<Meta>({ tournament: null, year: null, level: null, region: null });
+  let key = $state(aiKey());
+  let model = $state<AiModel>(aiModel() as AiModel);
+  let editing = $state<number | null>(null);
+  let busy = $state(false);
+  let saving = $state('');
+  let tokens = $state({ input: 0, output: 0 });
+
+  const done = $derived(jobs.filter((j) => j.status === 'done').length);
+  const failed = $derived(jobs.filter((j) => j.status === 'error').length);
+  const running = $derived(jobs.some((j) => j.status === 'parsing' || j.status === 'queued'));
+  const drafts = $derived(jobs.filter((j) => j.set).map((j) => j.set!));
+  const totalQ = $derived(drafts.reduce((n, s) => n + s.questions.length, 0));
+
   async function onFile(e: Event) {
     const f = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!f) return;
     busy = true;
     try {
-      raw = await fileToText(f);
-      const title = f.name.replace(/\.[^.]+$/, '');
-      if (key) {
-        set = { title, public: true, questions: [] };
-        await fromAi();
-      } else fromRaw(title);
+      ingest(await fileToText(f), f.name.replace(/\.[^.]+$/, ''));
     } catch (err) {
       notice = String(err);
     }
     busy = false;
   }
-  async function fromAi() {
-    if (!raw.trim() || !key) return;
-    busy = true;
-    aiNote = 'Parsing with ' + model + '…';
-    try {
-      const { aiParse, applyParsed, aiError } = await import('../lib/ai');
-      try {
-        const p = await aiParse(raw, key, model);
-        set = applyParsed(p, { ...set, title: set?.title ?? '' });
-        showRaw = false;
-        aiNote = `${p.questions.length} questions · ${p.usage.input.toLocaleString()} in / ${p.usage.output.toLocaleString()} out tokens`;
-      } catch (e) {
-        aiNote = aiError(e);
+  function ingest(text: string, name: string) {
+    raw = text;
+    source = name;
+    const split = splitRounds(text);
+    preamble = split.preamble;
+    jobs = split.chunks.map((c) => ({ ...c, status: 'queued', note: '' }));
+    meta = { tournament: null, year: null, level: null, region: null };
+    tokens = { input: 0, output: 0 };
+    stage = 'parse';
+    runAll();
+  }
+  /** Parse every queued round: with AI (two at a time) when a key is set, otherwise instantly. */
+  async function runAll() {
+    if (!key) {
+      for (const j of jobs) finish(j, { questions: parseText(j.text) });
+      return;
+    }
+    const { aiParse, aiError } = await import('../lib/ai');
+    const queue = jobs.filter((j) => j.status === 'queued' || j.status === 'error');
+    const worker = async () => {
+      for (let j = queue.shift(); j; j = queue.shift()) {
+        j.status = 'parsing';
+        j.note = '';
+        try {
+          const p = await aiParse(
+            j.text,
+            key,
+            model,
+            preamble || (jobs.length === 1 ? '' : raw.slice(0, 1500)),
+          );
+          tokens = { input: tokens.input + p.usage.input, output: tokens.output + p.usage.output };
+          meta = {
+            tournament: meta.tournament ?? p.tournament,
+            year: meta.year ?? p.year,
+            level: meta.level ?? p.level,
+            region: meta.region ?? p.region,
+          };
+          finish(j, { questions: p.questions, round: p.round, title: p.title });
+        } catch (e) {
+          j.status = 'error';
+          j.note = aiError(e);
+        }
       }
-    } finally {
-      busy = false;
+    };
+    await Promise.all([worker(), worker()]);
+    retitle();
+  }
+  function finish(j: Job, r: { questions: Question[]; round?: string | null; title?: string | null }) {
+    j.set = {
+      title: '',
+      public: true,
+      round: j.round ?? r.round ?? null,
+      questions: r.questions.map((q) => ({ ...q, category: q.category ?? null })),
+    };
+    j.status = r.questions.length ? 'done' : 'error';
+    j.note = r.questions.length ? `${r.questions.length} questions` : 'No questions found';
+    retitle();
+    if (!running) stage = 'review';
+  }
+  /** Titles follow the shared metadata: "NJCL 2024 Novice · Round 3". */
+  function retitle() {
+    const base =
+      [meta.tournament, meta.year, meta.level && cap(meta.level)].filter(Boolean).join(' ') || source;
+    for (const j of jobs) {
+      if (!j.set) continue;
+      j.set.title = j.set.round ? `${base} · ${j.set.round}` : base;
+      Object.assign(j.set, meta);
     }
   }
-  function fromRaw(title = set?.title ?? '') {
-    set = { public: true, ...set, title, questions: parseText(raw) };
-    showRaw = false;
+  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+  async function retry(j: Job) {
+    j.status = 'queued';
+    await runAll();
+  }
+  async function reparseWithAi() {
+    for (const j of jobs) j.status = 'queued';
+    stage = 'parse';
+    await runAll();
+    if (!running) stage = 'review';
+  }
+  async function saveAll() {
+    for (const [i, j] of jobs.entries()) {
+      if (!j.set || !j.set.questions.length) continue;
+      saving = `Saving ${i + 1} of ${jobs.length}…`;
+      try {
+        j.set = await saveSet(j.set);
+        j.note = `saved · ${j.set.questions.length} questions`;
+      } catch (e) {
+        j.status = 'error';
+        j.note = (e as Error).message;
+      }
+    }
+    saving = '';
+    notice = failed
+      ? 'Some rounds did not save; see the list.'
+      : `Saved ${drafts.length} set${drafts.length === 1 ? '' : 's'}.`;
+    loadMine();
+    if (!failed) reset();
+  }
+  function reset() {
+    stage = 'pick';
+    jobs = [];
+    raw = '';
+    editing = null;
   }
   async function edit(s: QuestionSet) {
     try {
-      set = await getSet(s.id!);
-      raw = '';
+      const full = await getSet(s.id!);
+      jobs = [{ round: full.round ?? null, text: '', status: 'done', note: '', set: full }];
+      meta = {
+        tournament: full.tournament ?? null,
+        year: full.year ?? null,
+        level: full.level ?? null,
+        region: full.region ?? null,
+      };
+      stage = 'review';
+      editing = 0;
     } catch (e) {
       notice = (e as Error).message;
     }
-  }
-  async function save() {
-    if (!set) return;
-    busy = true;
-    try {
-      set = await saveSet(set);
-      notice = 'Saved.';
-      loadMine();
-    } catch (e) {
-      notice = (e as Error).message ?? String(e);
-    }
-    busy = false;
   }
   async function remove(s: QuestionSet) {
     if (!confirm(`Delete "${s.title}"?`)) return;
@@ -122,18 +220,16 @@
     <a href="/">Play</a>
     {#if session}<button class="ghost sm" onclick={() => supabase!.auth.signOut()}>Sign out</button>{/if}
   </Brand>
-  <h1>Question sets</h1>
-  <p class="muted">Drop a packet, fix the parse, publish. Everything is editable before it goes live.</p>
 
   {#if !configured}
     <p class="bad-text">Supabase is not configured. Copy <code>.env.example</code> to <code>.env</code>.</p>
   {:else if !session}
-    <div class="card">
+    <h1>Question sets</h1>
+    <p class="muted">Drop a packet, fix the parse, publish. Everything is editable before it goes live.</p>
+    <div class="card stack">
       <p>Sign in to upload and manage question sets.</p>
-      <div class="stack">
-        <button class="wide" onclick={() => oauth('google')}>Continue with Google</button>
-        <button class="wide" onclick={() => oauth('github')}>Continue with GitHub</button>
-      </div>
+      <button class="wide" onclick={() => oauth('google')}>Continue with Google</button>
+      <button class="wide" onclick={() => oauth('github')}>Continue with GitHub</button>
       <p class="muted" style="text-align:center">or</p>
       <form
         class="answer-form"
@@ -147,158 +243,259 @@
       </form>
     </div>
   {:else}
-    {#if !set}
-      <div class="card">
-        <h2>New set</h2>
-        <p class="muted">
-          Drop a .docx, .pdf or .txt packet. Parsing happens in your browser; you can fix anything before
-          saving.
-        </p>
+    <div class="steps" aria-label="Progress">
+      <span class:on={stage === 'pick'}>1 Packet</span><span>›</span>
+      <span class:on={stage === 'parse'}>2 Parse</span><span>›</span>
+      <span class:on={stage === 'review'}>3 Review &amp; save</span>
+    </div>
+
+    {#if stage === 'pick'}
+      <h1>Import a packet</h1>
+      <p class="muted">A PDF or Word file can hold a whole division. Each round becomes its own set.</p>
+      <div class="card stack">
         <input type="file" accept=".docx,.pdf,.txt" onchange={onFile} disabled={busy} />
-        <p class="muted">…or paste text:</p>
+        <p class="muted" style="margin:0">…or paste text and press Parse:</p>
         <textarea bind:value={raw} placeholder="TU 1: ... ANSWER: ... B1: ... ANSWER: ..."></textarea>
-        <fieldset>
-          <legend>AI parsing (optional)</legend>
-          <p class="muted" style="margin:0">
-            Bring your own <a
-              href="https://console.anthropic.com/settings/keys"
-              target="_blank"
-              rel="noreferrer">Anthropic API key</a
-            >
-            for far more accurate parsing of messy packets. The key is stored only in this browser and sent only
-            to Anthropic.
-          </p>
-          <div class="fields">
-            <label
-              >API key
-              <input
-                type="password"
-                bind:value={key}
-                onchange={() => setAiKey(key)}
-                placeholder="sk-ant-…"
-                autocomplete="off"
-              /></label
-            >
-            <label
-              >Model
-              <select bind:value={model} onchange={() => setAiModel(model)}>
-                {#each AI_MODELS as m}<option value={m.id}>{m.label}</option>{/each}
-              </select></label
-            >
-          </div>
-          {#if aiNote}<p class="muted" style="margin:0">{aiNote}</p>{/if}
-        </fieldset>
-        <div class="row" style="margin-top:.75rem">
-          <button class="primary" onclick={fromAi} disabled={!raw.trim() || !key || busy}>
-            {busy ? 'Parsing…' : 'Parse with AI'}
+        <div class="row">
+          <button class="primary" onclick={() => ingest(raw, 'Pasted text')} disabled={!raw.trim() || busy}
+            >Parse</button
+          >
+          <button
+            class="ghost"
+            onclick={() => {
+              jobs = [
+                {
+                  round: null,
+                  text: '',
+                  status: 'done',
+                  note: '',
+                  set: { title: '', public: true, questions: [blank()] },
+                },
+              ];
+              stage = 'review';
+              editing = 0;
+            }}
+          >
+            Start from scratch
           </button>
-          <button onclick={() => fromRaw()} disabled={!raw.trim() || busy}>Parse without AI</button>
-          <button class="ghost" onclick={() => (set = { title: '', public: true, questions: [blank()] })}
-            >Start from scratch</button
+        </div>
+      </div>
+      <div class="card stack">
+        <div class="bar">
+          <h3 style="margin:0">AI parsing {key ? '· on' : '· off'}</h3>
+          <span class="tag" class:accent={!!key}>{key ? 'key saved' : 'no key'}</span>
+        </div>
+        <p class="muted" style="margin:0">
+          With your own <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer"
+            >Anthropic API key</a
+          >
+          every round is parsed by Claude automatically, including categories and metadata. The key stays in this
+          browser. Without one, a fast rule-based parser runs instead.
+        </p>
+        <div class="fields">
+          <label
+            >API key
+            <input
+              type="password"
+              bind:value={key}
+              onchange={() => setAiKey(key)}
+              placeholder="sk-ant-…"
+              autocomplete="off"
+            /></label
+          >
+          <label
+            >Model
+            <select bind:value={model} onchange={() => setAiModel(model)}>
+              {#each AI_MODELS as m}<option value={m.id}>{m.label}</option>{/each}
+            </select></label
           >
         </div>
       </div>
+
       <h2>My sets</h2>
       {#each mine as s (s.id)}
         <div class="card bar">
-          <span
+          <span class="min"
             ><strong>{s.title}</strong>
             <span class="muted"
-              >{[s.level, s.year, s.tournament, s.region, s.round].filter(Boolean).join(' · ')} · {s.count} q</span
+              >{[s.level, s.year, s.tournament, s.region].filter(Boolean).join(' · ')} · {s.count} q</span
             >
             {#if !s.public}<span class="tag">private</span>{/if}</span
           >
           <span class="row"
-            ><button onclick={() => edit(s)}>Edit</button><button class="bad" onclick={() => remove(s)}
-              >Delete</button
+            ><button class="sm" onclick={() => edit(s)}>Edit</button><button
+              class="bad sm"
+              onclick={() => remove(s)}>Delete</button
             ></span
           >
         </div>
       {:else}
-        <p class="muted">Nothing uploaded yet.</p>
+        <p class="empty">Nothing uploaded yet.</p>
       {/each}
     {:else}
-      <div class="card">
-        <div class="fields">
-          <label>Title <input type="text" bind:value={set.title} required /></label>
-          <label
-            >Level
-            <select bind:value={set.level}>
-              <option value={null}>—</option>
-              {#each LEVELS as l}<option value={l}>{l}</option>{/each}
-            </select></label
-          >
-          <label
-            >Year <input
-              type="number"
-              bind:value={set.year}
-              min="1990"
-              max="2100"
-              style="width:6rem"
-            /></label
-          >
-          <label>Tournament <input type="text" bind:value={set.tournament} placeholder="NJCL" /></label>
-          <label>Region <input type="text" bind:value={set.region} placeholder="National" /></label>
-          <label>Round <input type="text" bind:value={set.round} placeholder="Round 3" /></label>
-          <label class="inline"><input type="checkbox" bind:checked={set.public} /> Public</label>
+      <!-- parse + review share the round list -->
+      <div class="bar">
+        <div class="min">
+          <h1>{source}</h1>
+          <p class="muted" style="margin:0">
+            {jobs.length === 1 && !jobs[0].round ? 'One round' : `${jobs.length} rounds`}
+            {#if running}· <span class="spin"></span> parsing with {key ? model : 'rules'}{:else}· {totalQ} questions{/if}
+            {#if tokens.input}· {(tokens.input + tokens.output).toLocaleString()} tokens{/if}
+          </p>
         </div>
-        <p class="muted">
-          {set.questions.length} questions
-          {#if raw}· <button onclick={() => (showRaw = !showRaw)}>{showRaw ? 'Hide' : 'Fix'} raw text</button
-            >{/if}
-        </p>
-        {#if showRaw}
-          <textarea bind:value={raw} style="min-height:16rem"></textarea>
-          <div class="row">
-            {#if key}<button class="primary" onclick={fromAi} disabled={busy}
-                >{busy ? 'Parsing…' : 'Re-parse with AI'}</button
-              >{/if}
-            <button onclick={() => fromRaw()} disabled={busy}>Re-parse without AI</button>
-          </div>
-          {#if aiNote}<p class="muted">{aiNote}</p>{/if}
-        {/if}
+        <button class="ghost sm" onclick={reset} disabled={running}>Cancel</button>
+      </div>
+      <div class="progress" aria-hidden="true">
+        <div style="width:{(100 * (done + failed)) / Math.max(1, jobs.length)}%"></div>
       </div>
 
-      {#each set.questions as q, i}
-        <div class="card">
-          <div class="bar">
-            <strong>Tossup {i + 1}</strong>
-            <span class="row">
-              <input
+      {#if editing === null}
+        <div class="card stack" style="margin-top:1rem">
+          <div class="fields">
+            <label
+              >Tournament <input
                 type="text"
-                bind:value={q.category}
-                list="categories"
-                placeholder="Category"
-                style="width:11rem"
-              />
-              <button class="bad" onclick={() => set!.questions.splice(i, 1)}>Remove</button>
+                bind:value={meta.tournament}
+                onchange={retitle}
+                placeholder="NJCL"
+              /></label
+            >
+            <label
+              >Year <input
+                type="number"
+                bind:value={meta.year}
+                onchange={retitle}
+                min="1990"
+                max="2100"
+              /></label
+            >
+            <label
+              >Level
+              <select bind:value={meta.level} onchange={retitle}>
+                <option value={null}>—</option>
+                {#each LEVELS as l}<option value={l}>{l}</option>{/each}
+              </select></label
+            >
+            <label
+              >Region <input
+                type="text"
+                bind:value={meta.region}
+                onchange={retitle}
+                placeholder="National"
+              /></label
+            >
+          </div>
+          <p class="muted" style="margin:0">Applies to every round below. Titles update automatically.</p>
+        </div>
+
+        {#each jobs as j, i}
+          <div class="card bar">
+            <span class="min">
+              <strong>{j.set?.title || j.round || source}</strong>
+              <span class="muted">
+                {#if j.status === 'parsing'}<span class="spin"></span> parsing…
+                {:else if j.status === 'queued'}queued
+                {:else if j.status === 'error'}<span class="bad-text">{j.note}</span>
+                {:else}<span class="ok-text">✓</span> {j.note}{/if}
+              </span>
+            </span>
+            <span class="row">
+              {#if j.status === 'error'}<button class="sm" onclick={() => retry(j)} disabled={running}
+                  >Retry</button
+                >{/if}
+              {#if j.set}<button class="sm" onclick={() => (editing = i)}>Edit</button>{/if}
             </span>
           </div>
-          <textarea bind:value={q.tossup} placeholder="Question"></textarea>
-          <input type="text" bind:value={q.answer} placeholder="ANSWER" style="width:100%" />
-          {#each q.bonuses as b, j}
-            <div class="row" style="margin-top:.5rem">
-              <span class="tag">B{j + 1}</span>
-              <textarea bind:value={b.q} placeholder="Bonus question" style="flex:1;min-height:2.5rem"
-              ></textarea>
-              <input type="text" bind:value={b.a} placeholder="ANSWER" />
-              <button onclick={() => q.bonuses.splice(j, 1)}>×</button>
-            </div>
-          {/each}
-          {#if q.bonuses.length < 3}<button onclick={() => q.bonuses.push({ q: '', a: '' })}>+ bonus</button
-            >{/if}
+        {/each}
+
+        {#if !running}
+          <div class="row" style="margin-top:1rem">
+            <button class="primary" onclick={saveAll} disabled={!drafts.length || !!saving}>
+              {saving || `Save ${drafts.length === 1 ? 'set' : `all ${drafts.length} sets`}`}
+            </button>
+            {#if key && raw}<button onclick={reparseWithAi}>Re-parse everything with AI</button>{/if}
+            {#if !key && raw}<button class="ghost" onclick={reset}>Add an API key for better parsing</button
+              >{/if}
+          </div>
+        {/if}
+      {:else}
+        {@const set = jobs[editing].set!}
+        <div class="bar" style="margin-top:1rem">
+          <button class="ghost sm" onclick={() => (editing = null)}>← All rounds</button>
+          <span class="muted">{set.questions.length} questions</span>
         </div>
-      {/each}
-      <datalist id="categories"
-        >{#each CATEGORIES as c}<option value={c}></option>{/each}</datalist
-      >
-      <div class="row">
-        <button onclick={() => set!.questions.push(blank())}>+ tossup</button>
-        <button class="primary" onclick={save} disabled={busy || !set.title.trim() || !set.questions.length}
-          >Save</button
+        <div class="card">
+          <div class="fields">
+            <label>Title <input type="text" bind:value={set.title} required /></label>
+            <label>Round <input type="text" bind:value={set.round} placeholder="Round 3" /></label>
+            <label
+              >Level
+              <select bind:value={set.level}>
+                <option value={null}>—</option>
+                {#each LEVELS as l}<option value={l}>{l}</option>{/each}
+              </select></label
+            >
+            <label>Year <input type="number" bind:value={set.year} min="1990" max="2100" /></label>
+            <label>Tournament <input type="text" bind:value={set.tournament} placeholder="NJCL" /></label>
+            <label>Region <input type="text" bind:value={set.region} placeholder="National" /></label>
+            <label class="inline"><input type="checkbox" bind:checked={set.public} /> Public</label>
+          </div>
+        </div>
+        {#each set.questions as q, i}
+          <div class="card">
+            <div class="qhead">
+              <strong>Tossup {i + 1}</strong>
+              <input type="text" bind:value={q.category} list="categories" placeholder="Category" />
+              <button class="bad sm" onclick={() => set.questions.splice(i, 1)}>Remove</button>
+            </div>
+            <textarea bind:value={q.tossup} placeholder="Question"></textarea>
+            <input
+              type="text"
+              bind:value={q.answer}
+              placeholder="ANSWER"
+              style="width:100%;margin-top:.4rem"
+            />
+            {#each q.bonuses as b, j}
+              <div class="bonus">
+                <div class="bar">
+                  <span class="tag">B{j + 1}</span>
+                  <button class="sm" onclick={() => q.bonuses.splice(j, 1)} aria-label="Remove bonus"
+                    >×</button
+                  >
+                </div>
+                <textarea bind:value={b.q} placeholder="Bonus question" style="min-height:2.75rem"></textarea>
+                <input type="text" bind:value={b.a} placeholder="ANSWER" />
+              </div>
+            {/each}
+            {#if q.bonuses.length < 3}<button class="sm" onclick={() => q.bonuses.push({ q: '', a: '' })}
+                >+ bonus</button
+              >{/if}
+          </div>
+        {/each}
+        <datalist id="categories"
+          >{#each CATEGORIES as c}<option value={c}></option>{/each}</datalist
         >
-        <button onclick={() => (set = null)}>Cancel</button>
-      </div>
+        <div class="row">
+          <button onclick={() => set.questions.push(blank())}>+ tossup</button>
+          <button
+            class="primary"
+            onclick={async () => {
+              busy = true;
+              try {
+                jobs[editing!].set = await saveSet(set);
+                notice = 'Saved.';
+                loadMine();
+              } catch (e) {
+                notice = (e as Error).message;
+              }
+              busy = false;
+            }}
+            disabled={busy || !set.title.trim() || !set.questions.length}
+          >
+            Save this set
+          </button>
+        </div>
+      {/if}
     {/if}
   {/if}
   {#if notice}<p class="card">{notice}</p>{/if}

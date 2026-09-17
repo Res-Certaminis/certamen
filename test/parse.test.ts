@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseText } from '../src/lib/parse';
+import { parseText, splitRounds } from '../src/lib/parse';
 
 const njcl = `
 NJCL 2024 Novice Round 1
@@ -63,5 +63,43 @@ describe('parseText', () => {
   it('joins wrapped lines', () => {
     const qs = parseText(`TU 1: This question\nwraps onto two lines?\nANSWER: YES`);
     expect(qs[0].tossup).toBe('This question wraps onto two lines?');
+  });
+});
+
+describe('splitRounds', () => {
+  const packet = `NJCL 2024 Certamen
+Novice Division
+
+ROUND 1
+TU 1: One?
+ANSWER: A
+ROUND 2
+TU 1: Two?
+ANSWER: B
+Semifinal Round
+TU 1: Three?
+ANSWER: C
+FINALS
+TU 1: Four?
+ANSWER: D`;
+
+  it('splits a division packet into rounds and keeps the cover page as preamble', () => {
+    const { preamble, chunks } = splitRounds(packet);
+    expect(preamble).toBe('NJCL 2024 Certamen\nNovice Division');
+    expect(chunks.map((c) => c.round)).toEqual(['Round 1', 'Round 2', 'Semifinal Round', 'Finals']);
+    expect(parseText(chunks[2].text)[0].answer).toBe('C');
+  });
+
+  it('returns a single chunk when there is no round structure', () => {
+    const { chunks } = splitRounds('TU 1: Only one round here?\nANSWER: YES');
+    expect(chunks).toEqual([{ round: null, text: 'TU 1: Only one round here?\nANSWER: YES' }]);
+  });
+
+  it('ignores round-like words inside questions and repeated page headers', () => {
+    const t = `Round 1\nTU 1: In which round building did senators meet?\nANSWER: CURIA\nRound 1\nTU 2: Next?\nANSWER: X\nRound 2\nTU 1: Y?\nANSWER: Z`;
+    const { chunks } = splitRounds(t);
+    expect(chunks.map((c) => c.round)).toEqual(['Round 1', 'Round 2']);
+    expect(parseText(chunks[0].text)).toHaveLength(2);
+    expect(parseText(chunks[0].text)[0].answer).toBe('CURIA');
   });
 });

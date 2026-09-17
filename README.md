@@ -65,9 +65,13 @@ pnpm run deploy       # builds and ships static assets + Worker + Durable Object
 
 Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY` (the publishable key) as GitHub secrets; `.github/workflows/deploy.yml` deploys on push to `main`.
 
+## Importing packets
+
+The upload page walks through three steps: pick a file (or paste text), parse, review and save. A PDF or Word file often holds a whole division, so the text is first split on round headings ("Round 3", "Semifinal", "Finals") and each round becomes its own set, titled from the shared tournament, year and level. Every round shows its own parse status with a retry button, and one "Save all" button publishes them together. Rounds can be opened individually to fix questions before saving.
+
 ## AI parsing (bring your own key)
 
-The built-in parser is heuristic. For messy packets, the upload page can instead send the extracted text to Claude with structured output, using the uploader's own Anthropic API key. The key is kept in that browser's `localStorage` and sent only to `api.anthropic.com`; there is no server in between. The model also fills in set metadata (level, year, tournament, round) and a category per tossup when the packet states them. Default model is Claude Opus 5; Sonnet 5 and Haiku 4.5 are offered as cheaper options. A 30-question packet is roughly 8k input and 6k output tokens. Code lives in `src/lib/ai.ts` and loads lazily, so players never download it.
+The built-in parser is heuristic. For messy packets, the upload page instead sends each round's text to Claude automatically when a key is saved with structured output, using the uploader's own Anthropic API key. The key is kept in that browser's `localStorage` and sent only to `api.anthropic.com`; there is no server in between. The model also fills in set metadata (level, year, tournament, round) and a category per tossup when the packet states them. Default model is Claude Opus 5; Sonnet 5 and Haiku 4.5 are offered as cheaper options. A 30-question packet is roughly 8k input and 6k output tokens. Code lives in `src/lib/ai.ts` and loads lazily, so players never download it.
 
 ## Question format
 
