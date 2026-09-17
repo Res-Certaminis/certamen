@@ -222,7 +222,7 @@
       </p>
     {:else if g.mode === 'reader' || isHost}
       <p class="q">
-        {g.phase === 'reading' || g.phase === 'buzzed'
+        {g.phase === 'reading' || g.phase === 'paused' || g.phase === 'buzzed'
           ? tossup.slice(0, isHost && g.mode === 'live' ? tossup.length : words).join(' ')
           : tossup.join(' ')}
       </p>
@@ -230,7 +230,9 @@
       <p class="q muted">Listen to the moderator…</p>
     {/if}
 
-    {#if g.phase === 'reading' && g.locked.includes(myTeam)}
+    {#if g.phase === 'paused'}
+      <p class="muted"><span class="tag accent">Paused</span> Waiting for the host to resume.</p>
+    {:else if g.phase === 'reading' && g.locked.includes(myTeam)}
       <p class="bad-text">Your team is locked out of this tossup.</p>
     {:else if g.phase === 'buzzed'}
       {#if myBuzz && g.mode === 'reader'}
@@ -317,6 +319,7 @@
         {#if g.mode === 'live' && g.question}<span
             ><span class="muted">Answer</span> <strong>{g.question.answer}</strong></span
           >{/if}
+        <button class="primary" onclick={() => send({ t: 'pause' })}>Pause</button>
         <button onclick={() => send({ t: 'dead' })}>No answer</button>
         {#if g.mode === 'reader'}
           <label style="flex:1;min-width:12rem"
@@ -331,6 +334,9 @@
             /> <span style="min-width:4.5rem">{g.wpm} wpm</span></label
           >
         {/if}
+      {:else if g.phase === 'paused'}
+        <button class="primary" onclick={() => send({ t: 'resume' })}>Resume</button>
+        <button onclick={() => send({ t: 'dead' })}>No answer</button>
       {:else if g.phase === 'buzzed'}
         <button class="ok" onclick={() => send({ t: 'judge', correct: true })}>Correct</button>
         <button class="bad" onclick={() => send({ t: 'judge', correct: false })}>Incorrect</button>
@@ -362,10 +368,10 @@
   {/if}
 {/if}
 
-{#if inPlay && g.phase === 'reading'}
+{#if inPlay && (g.phase === 'reading' || g.phase === 'paused')}
   <div class="controls">
     <button class="buzz" class:hot={canBuzz && !buzzed} onclick={buzz} disabled={!canBuzz || buzzed}>
-      {buzzed ? '…' : g.locked.includes(myTeam) ? 'LOCKED' : 'BUZZ'}
+      {g.phase === 'paused' ? 'PAUSED' : buzzed ? '…' : g.locked.includes(myTeam) ? 'LOCKED' : 'BUZZ'}
     </button>
   </div>
 {/if}

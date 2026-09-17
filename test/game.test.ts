@@ -58,6 +58,19 @@ describe('reduce', () => {
     expect(revealedWords(slow, 1900)).toBe(7);
   });
 
+  it('pause freezes the reveal and blocks buzzes; resume continues from the same word', () => {
+    const g = run(lobby); // 100 ms/word from t=1000
+    const paused = reduce(g, { t: 'pause' }, 1400, deck);
+    expect(paused.phase).toBe('paused');
+    expect(revealedWords(paused, 9000)).toBe(4);
+    expect(reduce(paused, { t: 'buzz', id: 'a' }, 5000, deck).phase).toBe('paused');
+    const resumed = reduce(paused, { t: 'resume' }, 9000, deck);
+    expect(resumed.phase).toBe('reading');
+    expect(revealedWords(resumed, 9000)).toBe(4);
+    expect(revealedWords(resumed, 9300)).toBe(7);
+    expect(reduce(paused, { t: 'dead' }, 9000, deck).phase).toBe('dead');
+  });
+
   it('server order wins: a second buzz is ignored', () => {
     const g = run([...lobby, [{ t: 'buzz', id: 'a' }, 1350], [{ t: 'buzz', id: 'b' }, 1351]]);
     expect(g.buzz?.player).toBe('a');

@@ -23,6 +23,7 @@ export function newGame(code: string): Game {
     wpm: 200,
     buzz: null,
     locked: [],
+    pausedWord: 0,
     results: [],
     bonusIdx: 0,
     question: null,
@@ -38,6 +39,7 @@ export const msPerWord = (wpm: number) => 60000 / wpm;
 export function revealedWords(g: Game, now: number): number {
   if (!g.question) return 0;
   const n = wordCount(g.question.tossup);
+  if (g.phase === 'paused') return g.pausedWord;
   if (g.phase !== 'reading') return g.buzz?.word ?? (g.phase === 'lobby' ? 0 : n);
   return Math.min(n, Math.floor((now - g.startedAt) / msPerWord(g.wpm)));
 }
@@ -201,8 +203,21 @@ export function reduce(g: Game, e: Event, now: number, deck: Deck | null): Game 
       }
       break;
     }
+    case 'pause':
+      if (g.phase === 'reading') {
+        g.pausedWord = g.mode === 'reader' ? revealedWords(g, now) : 0;
+        g.phase = 'paused';
+        push(g, 'Paused');
+      }
+      break;
+    case 'resume':
+      if (g.phase === 'paused') {
+        startReading(g, now, g.pausedWord);
+        push(g, 'Resumed');
+      }
+      break;
     case 'dead':
-      if (g.phase === 'reading' || g.phase === 'buzzed') {
+      if (g.phase === 'reading' || g.phase === 'paused' || g.phase === 'buzzed') {
         g.phase = 'dead';
         g.revealed = true;
         g.buzz = null;

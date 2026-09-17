@@ -108,7 +108,7 @@ export interface BuzzRow {
 }
 
 export type Mode = 'reader' | 'live';
-export type Phase = 'lobby' | 'reading' | 'buzzed' | 'bonus' | 'dead' | 'done';
+export type Phase = 'lobby' | 'reading' | 'paused' | 'buzzed' | 'bonus' | 'dead' | 'done';
 
 export interface Player {
   id: string;
@@ -148,6 +148,7 @@ export interface Game {
   wpm: number;
   buzz: Buzz | null;
   locked: number[]; // teams locked out of the current tossup
+  pausedWord: number; // words revealed when the host paused (reader mode)
   results: Result[];
   bonusIdx: number; // which bonus is being played
   question: Question | null; // current question, answers redacted for non-hosts until revealed
@@ -168,6 +169,8 @@ export type Event =
   | { t: 'judge'; correct: boolean } // host ruling on the current tossup buzz (or override)
   | { t: 'bonus'; correct: boolean } // host ruling on the current bonus
   | { t: 'bonusAnswer'; id: string; text: string } // reader mode: team types a bonus answer
+  | { t: 'pause' }
+  | { t: 'resume' }
   | { t: 'dead' } // nobody answered; move on
   | { t: 'next' }
   | { t: 'goto'; qi: number }
