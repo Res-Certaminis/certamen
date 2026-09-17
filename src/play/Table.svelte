@@ -318,6 +318,19 @@
             ><span class="muted">Answer</span> <strong>{g.question.answer}</strong></span
           >{/if}
         <button onclick={() => send({ t: 'dead' })}>No answer</button>
+        {#if g.mode === 'reader'}
+          <label style="flex:1;min-width:12rem"
+            >Speed
+            <input
+              type="range"
+              min="100"
+              max="400"
+              step="10"
+              value={g.wpm}
+              oninput={(e) => send({ t: 'config', wpm: +val(e) })}
+            /> <span style="min-width:4.5rem">{g.wpm} wpm</span></label
+          >
+        {/if}
       {:else if g.phase === 'buzzed'}
         <button class="ok" onclick={() => send({ t: 'judge', correct: true })}>Correct</button>
         <button class="bad" onclick={() => send({ t: 'judge', correct: false })}>Incorrect</button>

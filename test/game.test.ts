@@ -50,6 +50,14 @@ describe('reduce', () => {
     expect(revealedWords(b, 5000)).toBe(3); // frozen while buzzed
   });
 
+  it('changing speed mid-read keeps the revealed word count continuous', () => {
+    const g = run(lobby); // 600 wpm → 100 ms/word, started at 1000
+    expect(revealedWords(g, 1500)).toBe(5);
+    const slow = reduce(g, { t: 'config', wpm: 300 }, 1500, deck); // 200 ms/word
+    expect(revealedWords(slow, 1500)).toBe(5); // no jump
+    expect(revealedWords(slow, 1900)).toBe(7);
+  });
+
   it('server order wins: a second buzz is ignored', () => {
     const g = run([...lobby, [{ t: 'buzz', id: 'a' }, 1350], [{ t: 'buzz', id: 'b' }, 1351]]);
     expect(g.buzz?.player).toBe('a');

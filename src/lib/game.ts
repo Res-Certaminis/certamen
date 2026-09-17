@@ -130,7 +130,12 @@ export function reduce(g: Game, e: Event, now: number, deck: Deck | null): Game 
       break;
     case 'config':
       if (e.mode) g.mode = e.mode;
-      if (e.wpm && e.wpm >= 60 && e.wpm <= 600) g.wpm = e.wpm;
+      if (e.wpm && e.wpm >= 60 && e.wpm <= 600) {
+        // Re-anchor the reveal clock so the visible text does not jump when speed changes mid-read.
+        const shown = g.phase === 'reading' ? revealedWords(g, now) : 0;
+        g.wpm = e.wpm;
+        if (g.phase === 'reading') g.startedAt = now - shown * msPerWord(g.wpm);
+      }
       if (e.teams && e.teams.length >= 1 && e.teams.length <= 6) {
         g.teams = e.teams.map((t, i) => t.trim() || `Team ${i + 1}`);
         for (const p of Object.values(g.players))
