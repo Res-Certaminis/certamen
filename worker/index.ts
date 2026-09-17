@@ -11,7 +11,7 @@ export interface Env {
   ASSETS: Fetcher;
 }
 
-const CODE = /^\/ws\/([A-Z0-9]{4,8})$/;
+const CODE = /^\/ws\/([A-Z0-9]{1,8})$/;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {

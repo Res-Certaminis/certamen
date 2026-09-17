@@ -40,8 +40,13 @@
 
 {#if g}
   <Table {g} {me} isHost={g.hostId === me} {skew} {send} />
+{:else if status === 'offline'}
+  <div class="card">
+    <h2>Can't reach room {code}</h2>
+    <p class="muted">Check the code with the host, or your connection. Retrying automatically…</p>
+  </div>
 {:else}
-  <p>Connecting to room {code}…</p>
+  <p><span class="spin"></span> Connecting to room {code}…</p>
 {/if}
 <p class="bar">
   <a href="/">← Home</a>

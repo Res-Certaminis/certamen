@@ -44,7 +44,11 @@
   }
   function join() {
     setPlayerName(name.trim());
-    if (code.trim()) nav(`/r/${code.trim().toUpperCase()}`);
+    const c = code
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase()
+      .slice(0, 8);
+    if (c) nav(`/r/${c}`);
   }
   async function toggleSave(s: QuestionSet) {
     if (isSaved(s)) removeOffline(s.id!);

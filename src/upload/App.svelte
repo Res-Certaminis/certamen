@@ -559,15 +559,13 @@
               />
               {#each q.bonuses as b, j}
                 <div class="bonus" style="grid-template-columns:1fr">
-                  <div class="bar">
-                    <span class="tag">B{j + 1}</span>
-                    <button class="sm" onclick={() => q.bonuses.splice(j, 1)} aria-label="Remove bonus"
-                      >×</button
-                    >
-                  </div>
+                  <span class="tag" style="justify-self:start">B{j + 1}</span>
                   <textarea bind:value={b.q} placeholder="Bonus question" style="min-height:2.75rem"
                   ></textarea>
                   <input type="text" bind:value={b.a} placeholder="ANSWER" />
+                  <button class="ghost sm" style="justify-self:start" onclick={() => q.bonuses.splice(j, 1)}>
+                    Remove B{j + 1}
+                  </button>
                 </div>
               {/each}
               <div class="row" style="margin-top:.75rem">
