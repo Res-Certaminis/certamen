@@ -2,6 +2,7 @@
   import { configured, getSet, listSets, LEVELS } from '../lib/supabase';
   import { savedSets, saveOffline, removeOffline, playerName, setPlayerName, roomCode } from '../lib/store';
   import type { QuestionSet } from '../lib/types';
+  import { mergeSets } from '../lib/game';
   import { nav } from './nav';
 
   let name = $state(playerName());
@@ -11,6 +12,8 @@
   let remote = $state<QuestionSet[]>([]);
   let error = $state('');
   let busy = $state('');
+  let picked = $state<string[]>([]); // set ids in the pool
+  let shuffle = $state(false);
   const online = configured && navigator.onLine;
   let loading = $state(online);
 
@@ -36,6 +39,22 @@
     busy = s.id!;
     try {
       sessionStorage.setItem('deck', JSON.stringify(await full(s)));
+      nav(path);
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    busy = '';
+  }
+  const inPool = (s: QuestionSet) => picked.includes(s.id!);
+  const togglePool = (s: QuestionSet) =>
+    (picked = inPool(s) ? picked.filter((id) => id !== s.id) : [...picked, s.id!]);
+  /** Build one deck from every picked set (optionally shuffled) and start solo or a room. */
+  async function goPool(path: string) {
+    setPlayerName(name.trim());
+    busy = 'pool';
+    try {
+      const fulls = await Promise.all(sets.filter(inPool).map(full));
+      sessionStorage.setItem('deck', JSON.stringify(mergeSets(fulls, shuffle)));
       nav(path);
     } catch (e) {
       error = (e as Error).message;
@@ -98,6 +117,28 @@
     {#each LEVELS as l}<button class:on={level === l} onclick={() => (level = l)}>{l}</button>{/each}
   </div>
 </div>
+{#if picked.length}
+  <div class="card pool">
+    <div class="bar">
+      <span
+        ><strong>{picked.length} set{picked.length === 1 ? '' : 's'} in the pool</strong>
+        <span class="muted"
+          >· {sets.filter(inPool).reduce((n, s) => n + (s.questions.length || s.count || 0), 0)} questions</span
+        ></span
+      >
+      <label class="muted" style="gap:.35rem"><input type="checkbox" bind:checked={shuffle} /> Shuffle</label>
+    </div>
+    <div class="row" style="margin-top:.6rem">
+      <button
+        class="primary"
+        onclick={() => goPool(`/r/${roomCode()}`)}
+        disabled={!name.trim() || !navigator.onLine || !!busy}>Host a room</button
+      >
+      <button onclick={() => goPool('/solo')} disabled={!name.trim() || !!busy}>Practice solo</button>
+      <button class="ghost" onclick={() => (picked = [])}>Clear</button>
+    </div>
+  </div>
+{/if}
 {#if !configured}
   <p class="muted">Supabase is not configured, so only sets saved on this device are shown.</p>
 {/if}
@@ -118,14 +159,19 @@
           {#if isSaved(s)}<span class="tag">offline</span>{/if}
         </p>
       </div>
-      <button
-        class="ghost sm"
-        onclick={() => toggleSave(s)}
-        aria-label={isSaved(s) ? 'Remove offline copy' : 'Save for offline'}
-        title="Save for offline play"
-      >
-        {isSaved(s) ? '★' : '☆'}
-      </button>
+      <span class="row">
+        <label class="muted" style="gap:.35rem"
+          ><input type="checkbox" checked={inPool(s)} onchange={() => togglePool(s)} /> Pool</label
+        >
+        <button
+          class="ghost sm"
+          onclick={() => toggleSave(s)}
+          aria-label={isSaved(s) ? 'Remove offline copy' : 'Save for offline'}
+          title="Save for offline play"
+        >
+          {isSaved(s) ? '★' : '☆'}
+        </button>
+      </span>
     </div>
     <div class="row" style="margin-top:.75rem">
       <button
@@ -144,11 +190,18 @@
 {/each}
 
 <p class="muted" style="margin-top:2rem">
+  Tick "Pool" on several sets to play them together, in order or shuffled. ·
   <a href="https://github.com/Res-Certaminis/certamen">Open source on GitHub</a>
 </p>
 
 <style>
   .hero {
     padding: 0.5rem 0 1rem;
+  }
+  .pool {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 2;
+    border-color: rgba(196, 181, 253, 0.45);
   }
 </style>

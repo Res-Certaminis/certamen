@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newGame, reduce, redact, revealedWords, scores, type Deck } from '../src/lib/game';
+import { mergeSets, newGame, reduce, redact, revealedWords, scores, type Deck } from '../src/lib/game';
 import type { Event, Game } from '../src/lib/types';
 
 const deck: Deck = {
@@ -165,5 +165,33 @@ describe('redact', () => {
   it('reveals everything once dead', () => {
     const dead: Game = { ...g, phase: 'dead', revealed: true };
     expect(redact(dead, false).question).toEqual(deck.questions[0]);
+  });
+});
+
+describe('mergeSets', () => {
+  const a = {
+    title: 'A',
+    public: true,
+    questions: [1, 2, 3].map((n) => ({ id: `a${n}`, tossup: `a${n}`, answer: 'x', bonuses: [] })),
+  };
+  const b = {
+    title: 'B',
+    public: true,
+    questions: [1, 2].map((n) => ({ id: `b${n}`, tossup: `b${n}`, answer: 'x', bonuses: [] })),
+  };
+  it('concatenates in order when not shuffled', () => {
+    const d = mergeSets([a, b], false);
+    expect(d.questions.map((q) => q.id)).toEqual(['a1', 'a2', 'a3', 'b1', 'b2']);
+    expect(d.title).toContain('2 sets');
+  });
+  it('shuffles into a permutation with no repeats', () => {
+    let seed = 42;
+    const rand = () => (seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32;
+    const d = mergeSets([a, b], true, rand);
+    const ids = d.questions.map((q) => q.id);
+    expect(ids).toHaveLength(5);
+    expect(new Set(ids).size).toBe(5);
+    expect(ids).not.toEqual(['a1', 'a2', 'a3', 'b1', 'b2']);
+    expect(d.title).toMatch(/shuffled$/);
   });
 });

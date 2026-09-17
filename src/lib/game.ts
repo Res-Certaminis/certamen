@@ -279,3 +279,25 @@ export function redact(g: Game, forHost: boolean): Game {
   );
   return { ...g, question: { ...q, answer: r ? q.answer : '', bonuses } };
 }
+
+/**
+ * Combine several sets into one deck. With `shuffle`, the questions are a random permutation
+ * (Fisher–Yates), so nothing repeats until the whole pool has been played.
+ */
+export function mergeSets(
+  sets: QuestionSet[],
+  shuffle: boolean,
+  rand: () => number = Math.random,
+): QuestionSet {
+  const questions = sets.flatMap((s) => s.questions);
+  if (shuffle)
+    for (let i = questions.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [questions[i], questions[j]] = [questions[j], questions[i]];
+    }
+  const title =
+    sets.length === 1
+      ? sets[0].title
+      : `${sets.length} sets · ${sets.map((s) => s.title).join(', ')}`.slice(0, 80);
+  return { title: shuffle ? `${title} · shuffled` : title, public: true, questions };
+}
