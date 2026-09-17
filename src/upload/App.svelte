@@ -74,7 +74,7 @@
   let editing = $state<number | null>(null);
   let editQ = $state<number | null>(null); // which tossup card is in edit mode
   let existing = $state<QuestionSet[]>([]);
-  let dupeCheck = $state<'idle' | 'checking' | 'done' | 'skipped'>('idle');
+  let dupeCheck = $state<'idle' | 'checking' | 'done' | 'skipped' | 'error'>('idle');
   let dupeReq = 0;
   let busy = $state(false);
   let saving = $state('');
@@ -181,7 +181,8 @@
         dupeCheck = 'done';
       } catch {
         if (req !== dupeReq) return;
-        dupeCheck = 'skipped';
+        dupeCheck = 'error';
+        existing = [];
       }
     }
     for (const j of jobs) {
@@ -438,6 +439,7 @@
             Applies to every round below. Titles update automatically.
             {#if dupeCheck === 'checking'}<span class="spin"></span> checking for public copies…
             {:else if dupeCheck === 'skipped'}Duplicate check needs tournament, year and level.
+            {:else if dupeCheck === 'error'}Could not check for public copies.
             {:else if dupeCheck === 'done'}{existing.length
                 ? `${existing.length} public set${existing.length === 1 ? '' : 's'} already exist for this tournament, year and level.`
                 : 'No public copies found.'}{/if}
