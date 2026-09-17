@@ -54,7 +54,7 @@
 </script>
 
 <section class="hero">
-  <h1>Latin quiz bowl,<br />built for buzzing.</h1>
+  <h1>Certamen.<br />Play to win.</h1>
   <p class="muted">Host a room, join from any phone, or drill a set offline.</p>
 </section>
 

@@ -130,12 +130,9 @@ kbd {
   letter-spacing: -0.02em;
   text-decoration: none;
 }
-.logo i {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #7c3aed, var(--accent-2));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+.logo svg {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
 }
 
 /* Surfaces */
