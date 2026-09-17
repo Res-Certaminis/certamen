@@ -37,7 +37,9 @@ export default defineConfig({
     rollupOptions: {
       input: { play: 'index.html', upload: 'upload/index.html' },
       output: {
-        advancedChunks: { groups: [{ name: 'parsers', test: /node_modules[\\/](mammoth|pdfjs-dist)[\\/]/ }] },
+        advancedChunks: {
+          groups: [{ name: 'parsers', test: /node_modules[\\/](mammoth|pdfjs-dist|@anthropic-ai|zod)[\\/]/ }],
+        },
       },
     },
   },

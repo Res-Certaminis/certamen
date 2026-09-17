@@ -23,6 +23,11 @@ export const setPlayerName = (n: string) => set('name', n);
 export const buzzKey = () => get('buzzKey', 'Space');
 export const setBuzzKey = (k: string) => set('buzzKey', k);
 
+export const aiKey = () => get('anthropicKey', '');
+export const setAiKey = (k: string) => set('anthropicKey', k.trim());
+export const aiModel = () => get('anthropicModel', 'claude-opus-5');
+export const setAiModel = (m: string) => set('anthropicModel', m);
+
 export const savedSets = () => get<QuestionSet[]>('sets', []);
 export function saveOffline(s: QuestionSet) {
   set('sets', [...savedSets().filter((x) => x.id !== s.id), s]);

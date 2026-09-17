@@ -12,6 +12,8 @@
   } from '../lib/supabase';
   import Brand from '../lib/Brand.svelte';
   import { fileToText, parseText } from '../lib/parse';
+  import { aiKey, setAiKey, aiModel, setAiModel } from '../lib/store';
+  import { AI_MODELS, type AiModel } from '../lib/ai';
   import type { Question, QuestionSet } from '../lib/types';
 
   let session = $state<Session | null>(null);
@@ -22,6 +24,9 @@
   let raw = $state('');
   let showRaw = $state(false);
   let set = $state<QuestionSet | null>(null);
+  let key = $state(aiKey());
+  let model = $state<AiModel>(aiModel() as AiModel);
+  let aiNote = $state('');
 
   supabase?.auth.getSession().then(({ data }) => (session = data.session));
   supabase?.auth.onAuthStateChange((_e, s) => (session = s));
@@ -52,11 +57,33 @@
     busy = true;
     try {
       raw = await fileToText(f);
-      fromRaw(f.name.replace(/\.[^.]+$/, ''));
+      const title = f.name.replace(/\.[^.]+$/, '');
+      if (key) {
+        set = { title, public: true, questions: [] };
+        await fromAi();
+      } else fromRaw(title);
     } catch (err) {
       notice = String(err);
     }
     busy = false;
+  }
+  async function fromAi() {
+    if (!raw.trim() || !key) return;
+    busy = true;
+    aiNote = 'Parsing with ' + model + '…';
+    try {
+      const { aiParse, applyParsed, aiError } = await import('../lib/ai');
+      try {
+        const p = await aiParse(raw, key, model);
+        set = applyParsed(p, { ...set, title: set?.title ?? '' });
+        showRaw = false;
+        aiNote = `${p.questions.length} questions · ${p.usage.input.toLocaleString()} in / ${p.usage.output.toLocaleString()} out tokens`;
+      } catch (e) {
+        aiNote = aiError(e);
+      }
+    } finally {
+      busy = false;
+    }
   }
   function fromRaw(title = set?.title ?? '') {
     set = { public: true, ...set, title, questions: parseText(raw) };
@@ -130,10 +157,46 @@
         <input type="file" accept=".docx,.pdf,.txt" onchange={onFile} disabled={busy} />
         <p class="muted">…or paste text:</p>
         <textarea bind:value={raw} placeholder="TU 1: ... ANSWER: ... B1: ... ANSWER: ..."></textarea>
-        <button class="primary" onclick={() => fromRaw()} disabled={!raw.trim()}>Parse</button>
-        <button onclick={() => (set = { title: '', public: true, questions: [blank()] })}
-          >Start from scratch</button
-        >
+        <fieldset>
+          <legend>AI parsing (optional)</legend>
+          <p class="muted" style="margin:0">
+            Bring your own <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noreferrer">Anthropic API key</a
+            >
+            for far more accurate parsing of messy packets. The key is stored only in this browser and sent only
+            to Anthropic.
+          </p>
+          <div class="fields">
+            <label
+              >API key
+              <input
+                type="password"
+                bind:value={key}
+                onchange={() => setAiKey(key)}
+                placeholder="sk-ant-…"
+                autocomplete="off"
+              /></label
+            >
+            <label
+              >Model
+              <select bind:value={model} onchange={() => setAiModel(model)}>
+                {#each AI_MODELS as m}<option value={m.id}>{m.label}</option>{/each}
+              </select></label
+            >
+          </div>
+          {#if aiNote}<p class="muted" style="margin:0">{aiNote}</p>{/if}
+        </fieldset>
+        <div class="row" style="margin-top:.75rem">
+          <button class="primary" onclick={fromAi} disabled={!raw.trim() || !key || busy}>
+            {busy ? 'Parsing…' : 'Parse with AI'}
+          </button>
+          <button onclick={() => fromRaw()} disabled={!raw.trim() || busy}>Parse without AI</button>
+          <button class="ghost" onclick={() => (set = { title: '', public: true, questions: [blank()] })}
+            >Start from scratch</button
+          >
+        </div>
       </div>
       <h2>My sets</h2>
       {#each mine as s (s.id)}
@@ -186,7 +249,13 @@
         </p>
         {#if showRaw}
           <textarea bind:value={raw} style="min-height:16rem"></textarea>
-          <button onclick={() => fromRaw()}>Re-parse</button>
+          <div class="row">
+            {#if key}<button class="primary" onclick={fromAi} disabled={busy}
+                >{busy ? 'Parsing…' : 'Re-parse with AI'}</button
+              >{/if}
+            <button onclick={() => fromRaw()} disabled={busy}>Re-parse without AI</button>
+          </div>
+          {#if aiNote}<p class="muted">{aiNote}</p>{/if}
         {/if}
       </div>
 

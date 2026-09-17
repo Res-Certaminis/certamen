@@ -26,7 +26,7 @@ Browser (Svelte 5 + Vite PWA) ──WebSocket──▶ Cloudflare Worker ──�
 - The **same pure reducer** (`src/lib/game.ts`) runs in the Durable Object and in the browser for solo mode, so rules are tested once.
 - **Data model** (Supabase Postgres): `sets` (title, level, year, tournament, region, round) → `questions` (one row each, with `category`) → `buzzes` (one row per tossup buzz: word position, tossup length, correct, mode, team, player). Sets can be starred for offline play; they are cached in `localStorage` and the app shell is precached by the service worker.
 - **Buzz analytics**: when the host (or solo player) advances past a question, every buzz on it is appended to `buzzes`, including any overrides. The reveal screen marks where each player buzzed, and `/s/<set id>` shows per-question buzz strips and a by-category conversion table. Buzz rows are appended with the publishable key (insert-only, no edits), so treat them as community data rather than audited results.
-- Packet parsing runs in the browser (mammoth for docx, pdf.js for pdf). No server compute.
+- Packet parsing runs in the browser (mammoth for docx, pdf.js for pdf), optionally followed by an AI pass with the uploader's own Anthropic key. No server compute.
 
 ### Cost
 
@@ -64,6 +64,10 @@ pnpm run deploy       # builds and ships static assets + Worker + Durable Object
 ```
 
 Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY` (the publishable key) as GitHub secrets; `.github/workflows/deploy.yml` deploys on push to `main`.
+
+## AI parsing (bring your own key)
+
+The built-in parser is heuristic. For messy packets, the upload page can instead send the extracted text to Claude with structured output, using the uploader's own Anthropic API key. The key is kept in that browser's `localStorage` and sent only to `api.anthropic.com`; there is no server in between. The model also fills in set metadata (level, year, tournament, round) and a category per tossup when the packet states them. Default model is Claude Opus 5; Sonnet 5 and Haiku 4.5 are offered as cheaper options. A 30-question packet is roughly 8k input and 6k output tokens. Code lives in `src/lib/ai.ts` and loads lazily, so players never download it.
 
 ## Question format
 
