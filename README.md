@@ -67,7 +67,7 @@ Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`
 
 ## Importing packets
 
-The upload page walks through three steps: pick a file (or paste text), parse, review and save. A PDF or Word file often holds a whole division, so the text is first split on round headings ("Round 3", "Semifinal", "Finals") and each round becomes its own set, titled from the shared tournament, year and level. Every round shows its own parse status with a retry button, and one "Save all" button publishes them together. Rounds can be opened individually to fix questions before saving. Before saving, the importer looks for **public** sets with the same tournament, year, level and round; matching rounds default to "Skip", with "Replace mine" (keeps question ids by position, so buzz history survives) when you own the existing set, or "Upload anyway". Private sets are never consulted.
+The upload page walks through three steps: pick a file (or paste text), parse, review and save. A PDF or Word file often holds a whole division, so the text is first split on round headings ("Round 3", "Semifinal", "Finals") and each round becomes its own set, titled from the shared tournament, year and level. Every round shows its own parse status with a retry button, and one "Save all" button publishes them together. Rounds can be opened individually to fix questions before saving. Before saving, the importer looks for **public** sets with the same tournament, year, level and round; matching rounds are skipped, with a "Replace mine" option (keeps question ids by position, so buzz history survives) when you own the existing set. Second copies of a public round cannot be uploaded. Private sets are never consulted.
 
 ## AI parsing (bring your own key)
 

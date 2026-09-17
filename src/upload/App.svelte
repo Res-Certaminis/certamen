@@ -53,7 +53,7 @@
     progress?: number; // questions seen so far while streaming
     set?: QuestionSet;
     dupe?: QuestionSet; // an already-public set for the same tournament/year/level/round
-    action?: 'save' | 'skip' | 'replace' | 'duplicate';
+    action?: 'save' | 'skip' | 'replace';
   }
   const normRound = (r: string | null | undefined) => (r ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const CONCURRENCY = 4;
@@ -463,11 +463,10 @@
               </span>
             </span>
             <span class="row">
-              {#if j.dupe}
+              {#if j.dupe && canReplace(j)}
                 <select class="sm" bind:value={j.action} aria-label="Duplicate handling">
                   <option value="skip">Skip</option>
                   {#if canReplace(j)}<option value="replace">Replace mine</option>{/if}
-                  <option value="duplicate">Upload anyway</option>
                 </select>
               {/if}
               {#if j.status === 'error'}<button class="sm" onclick={() => retry(j)} disabled={running}
@@ -479,7 +478,9 @@
           {#if j.dupe}
             <p class="muted" style="margin:-0.4rem 0 0.75rem 0.25rem">
               <span class="tag accent">already public</span>
-              “{j.dupe.title}” · {j.dupe.count} questions{canReplace(j) ? ' · yours' : ''}
+              “{j.dupe.title}” · {j.dupe.count} questions · {canReplace(j)
+                ? 'yours'
+                : 'skipped, already available to everyone'}
             </p>
           {/if}
         {/each}
