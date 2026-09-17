@@ -8,6 +8,7 @@
     deleteSet,
     getSet,
     listSets,
+    findPublicSets,
     LEVELS,
     CATEGORIES,
     REGIONS,
@@ -51,7 +52,10 @@
     note: string;
     progress?: number; // questions seen so far while streaming
     set?: QuestionSet;
+    dupe?: QuestionSet; // an already-public set for the same tournament/year/level/round
+    action?: 'save' | 'skip' | 'replace' | 'duplicate';
   }
+  const normRound = (r: string | null | undefined) => (r ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const CONCURRENCY = 4;
   interface Meta {
     tournament: string | null;
@@ -69,13 +73,17 @@
   let model = $state<AiModel>(aiModel() as AiModel);
   let editing = $state<number | null>(null);
   let editQ = $state<number | null>(null); // which tossup card is in edit mode
+  let existing = $state<QuestionSet[]>([]);
+  let dupeCheck = $state<'idle' | 'checking' | 'done' | 'skipped'>('idle');
+  let dupeReq = 0;
   let busy = $state(false);
   let saving = $state('');
 
   const done = $derived(jobs.filter((j) => j.status === 'done').length);
   const failed = $derived(jobs.filter((j) => j.status === 'error').length);
   const running = $derived(jobs.some((j) => j.status === 'parsing' || j.status === 'queued'));
-  const drafts = $derived(jobs.filter((j) => j.set).map((j) => j.set!));
+  const drafts = $derived(jobs.filter((j) => j.set && j.action !== 'skip').map((j) => j.set!));
+  const skipped = $derived(jobs.filter((j) => j.action === 'skip').length);
   const totalQ = $derived(drafts.reduce((n, s) => n + s.questions.length, 0));
 
   async function onFile(e: Event) {
@@ -156,7 +164,34 @@
       j.set.title = j.set.round ? `${base} · ${j.set.round}` : base;
       Object.assign(j.set, meta);
     }
+    checkDupes();
   }
+  /** Warn about rounds that are already public for this tournament, year and level. */
+  async function checkDupes() {
+    const req = ++dupeReq;
+    if (!meta.tournament || !meta.year || !meta.level) {
+      dupeCheck = 'skipped';
+      existing = [];
+    } else {
+      dupeCheck = 'checking';
+      try {
+        const found = await findPublicSets(meta);
+        if (req !== dupeReq) return;
+        existing = found;
+        dupeCheck = 'done';
+      } catch {
+        if (req !== dupeReq) return;
+        dupeCheck = 'skipped';
+      }
+    }
+    for (const j of jobs) {
+      if (!j.set) continue;
+      const dupe = existing.find((e) => e.id !== j.set!.id && normRound(e.round) === normRound(j.set!.round));
+      if (dupe?.id !== j.dupe?.id) j.action = dupe ? 'skip' : 'save';
+      j.dupe = dupe;
+    }
+  }
+  const canReplace = (j: Job) => !!j.dupe && j.dupe.owner === session?.user.id;
   const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   async function retry(j: Job) {
     j.status = 'queued';
@@ -170,10 +205,22 @@
   }
   async function saveAll() {
     for (const [i, j] of jobs.entries()) {
-      if (!j.set || !j.set.questions.length) continue;
+      if (!j.set || !j.set.questions.length || j.action === 'skip') continue;
       saving = `Saving ${i + 1} of ${jobs.length}…`;
       try {
-        j.set = await saveSet(j.set);
+        let draft = j.set;
+        if (j.action === 'replace' && j.dupe) {
+          // Reuse the existing set and, by position, its question ids so buzz history survives.
+          const old = await getSet(j.dupe.id!);
+          draft = {
+            ...draft,
+            id: old.id,
+            questions: draft.questions.map((q, k) => ({ ...q, id: old.questions[k]?.id })),
+          };
+        }
+        j.set = await saveSet(draft);
+        j.dupe = undefined;
+        j.action = 'save';
         j.note = `saved · ${j.set.questions.length} questions`;
       } catch (e) {
         j.status = 'error';
@@ -387,7 +434,14 @@
               /></label
             >
           </div>
-          <p class="muted" style="margin:0">Applies to every round below. Titles update automatically.</p>
+          <p class="muted" style="margin:0">
+            Applies to every round below. Titles update automatically.
+            {#if dupeCheck === 'checking'}<span class="spin"></span> checking for public copies…
+            {:else if dupeCheck === 'skipped'}Duplicate check needs tournament, year and level.
+            {:else if dupeCheck === 'done'}{existing.length
+                ? `${existing.length} public set${existing.length === 1 ? '' : 's'} already exist for this tournament, year and level.`
+                : 'No public copies found.'}{/if}
+          </p>
           <datalist id="regions"
             >{#each REGIONS as r}<option value={r}></option>{/each}</datalist
           >
@@ -407,18 +461,32 @@
               </span>
             </span>
             <span class="row">
+              {#if j.dupe}
+                <select class="sm" bind:value={j.action} aria-label="Duplicate handling">
+                  <option value="skip">Skip</option>
+                  {#if canReplace(j)}<option value="replace">Replace mine</option>{/if}
+                  <option value="duplicate">Upload anyway</option>
+                </select>
+              {/if}
               {#if j.status === 'error'}<button class="sm" onclick={() => retry(j)} disabled={running}
                   >Retry</button
                 >{/if}
               {#if j.set}<button class="sm" onclick={() => (editing = i)}>Edit</button>{/if}
             </span>
           </div>
+          {#if j.dupe}
+            <p class="muted" style="margin:-0.4rem 0 0.75rem 0.25rem">
+              <span class="tag accent">already public</span>
+              “{j.dupe.title}” · {j.dupe.count} questions{canReplace(j) ? ' · yours' : ''}
+            </p>
+          {/if}
         {/each}
 
         {#if !running}
           <div class="row" style="margin-top:1rem">
             <button class="primary" onclick={saveAll} disabled={!drafts.length || !!saving}>
-              {saving || `Save ${drafts.length === 1 ? 'set' : `all ${drafts.length} sets`}`}
+              {saving ||
+                `Save ${drafts.length === 1 ? 'set' : `all ${drafts.length} sets`}${skipped ? ` · skip ${skipped}` : ''}`}
             </button>
             {#if key && raw}<button onclick={reparseWithAi}>Re-parse everything with AI</button>{/if}
             {#if !key && raw}<button class="ghost" onclick={reset}>Add an API key for better parsing</button

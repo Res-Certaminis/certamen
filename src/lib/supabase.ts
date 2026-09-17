@@ -74,6 +74,26 @@ export async function saveSet(set: QuestionSet): Promise<QuestionSet> {
   return getSet(saved.id);
 }
 
+/** Public sets that share tournament, year and level: used to warn about re-uploading a round. */
+export async function findPublicSets(m: {
+  tournament: string | null;
+  year: number | null;
+  level: string | null;
+}) {
+  if (!m.tournament || !m.year || !m.level) return [] as QuestionSet[];
+  const { data, error } = await need()
+    .from('sets')
+    .select(`${SET_COLS},questions(count)`)
+    .eq('public', true)
+    .ilike('tournament', m.tournament.trim())
+    .eq('year', m.year)
+    .eq('level', m.level);
+  if (error) throw error;
+  return data.map(
+    ({ questions, ...s }) => ({ ...s, questions: [], count: questions[0]?.count ?? 0 }) as QuestionSet,
+  );
+}
+
 export async function deleteSet(id: string) {
   const { error } = await need().from('sets').delete().eq('id', id);
   if (error) throw error;
