@@ -63,7 +63,13 @@ export async function saveSet(set: QuestionSet): Promise<QuestionSet> {
     .from('questions')
     .upsert(rows, { defaultToNull: false })
     .select('id');
-  if (qe) throw qe;
+  if (qe) {
+    if (/subcategory/.test(qe.message))
+      throw new Error(
+        'Database is missing the subcategory column: run supabase/migrations/0002_subcategory.sql in the Supabase SQL editor, then save again.',
+      );
+    throw qe;
+  }
   const keep = qs.map((q) => q.id);
   const { error: de } = await sb
     .from('questions')
