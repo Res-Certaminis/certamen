@@ -1,0 +1,51 @@
+{
+  "name": "certamen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Open-source certamen (Latin quiz bowl) buzzer and question-set app",
+  "scripts": {
+    "dev": "concurrently -k -n web,worker -c cyan,yellow \"vite\" \"wrangler dev --port 8787\"",
+    "build": "vite build",
+    "preview": "pnpm build && wrangler dev --port 8787",
+    "deploy": "pnpm build && wrangler deploy",
+    "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p worker/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "db:push": "pnpm dlx supabase db push",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "mammoth": "^1.12.3",
+    "pdfjs-dist": "^6.3.289"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260917.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "concurrently": "^10.0.5",
+    "prettier": "^3.9.7",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^5.0.1",
+    "workbox-window": "^7.4.1",
+    "wrangler": "^4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.12.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
+  }
+}
