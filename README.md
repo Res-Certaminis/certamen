@@ -44,7 +44,7 @@ cp .env.example .env
 **Supabase**
 
 1. Dashboard → restore the project if paused → Project Settings → API Keys. Put the project URL and the **publishable** key (`sb_publishable_…`) in `.env`. The secret key is never used.
-2. SQL editor → paste `supabase/migrations/0001_sets.sql` and run it (or `supabase link` then `pnpm db:push`).
+2. SQL editor → run each file in `supabase/migrations/` in order (or `supabase link` then `pnpm db:push`).
 3. Authentication → Providers: enable GitHub and/or Google (OAuth needs no email sending). Email magic links also work but Supabase's built-in mailer only delivers to project members, so configure custom SMTP for that.
 4. Authentication → URL configuration: add your deployed origin and `http://localhost:5173` to redirect URLs.
 
@@ -97,11 +97,15 @@ Parenthetical `(accept …)` alternates are honoured by the answer matcher; `(do
 
 ## Metadata
 
-Sets carry `level` (novice / intermediate / advanced), `year`, `tournament`, `region`, and `round`. Each question carries a free-text `category` (the editor suggests the usual ones: Mythology, History, Grammar, Vocabulary, Derivatives, Literature, Culture, Geography, Mottoes & Abbreviations, Translation). The home page filters by level; the stats page groups by category.
+Sets carry `level` (novice / intermediate / advanced), `year`, `tournament`, `region`, and `round`. `region` is "National" for NJCL, a US state for state JCL events and school-hosted tournaments, or "Competitive Circuit" for open invitationals (usually college-hosted). The importer guesses these from the packet's cover text and the AI parser confirms them.
+
+Each question has one of four main categories, `Grammar`, `History`, `Mythology`, `Literature`, plus an optional free-text `subcategory` (e.g. "Subjunctive", "Derivatives", "Second Punic War") for finer analytics. Grammar includes vocabulary, derivatives, translation and mottoes; History includes culture, daily life and geography. The home page filters by level; the stats page groups by category.
 
 ## Metadata
 
-Sets carry `level` (novice / intermediate / advanced), `year`, `tournament`, `region`, and `round`. Each question carries a free-text `category` (the editor suggests the usual ones: Mythology, History, Grammar, Vocabulary, Derivatives, Literature, Culture, Geography, Mottoes & Abbreviations, Translation). The home page filters by level; the stats page groups by category.
+Sets carry `level` (novice / intermediate / advanced), `year`, `tournament`, `region`, and `round`. `region` is "National" for NJCL, a US state for state JCL events and school-hosted tournaments, or "Competitive Circuit" for open invitationals (usually college-hosted). The importer guesses these from the packet's cover text and the AI parser confirms them.
+
+Each question has one of four main categories, `Grammar`, `History`, `Mythology`, `Literature`, plus an optional free-text `subcategory` (e.g. "Subjunctive", "Derivatives", "Second Punic War") for finer analytics. Grammar includes vocabulary, derivatives, translation and mottoes; History includes culture, daily life and geography. The home page filters by level; the stats page groups by category.
 
 ## Scoring
 

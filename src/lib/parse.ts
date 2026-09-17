@@ -2,7 +2,7 @@
  * Turn a packet (docx/pdf/txt) into questions. Heuristic by design: the upload UI
  * shows an editable preview, so this only has to get most of the way there.
  */
-import type { Question } from './types';
+import type { Category, Question } from './types';
 
 const TOSSUP = /^\s*(?:(?:TU|T\.?U\.?|TOSS-?UP|TOSSUP)\s*#?\s*(\d+)?\s*[.:)-]?|(\d{1,2})\s*[.):])\s*/i;
 const BONUS = /^\s*(?:B\s*([123])|BONUS\s*#?\s*([123])?)\s*[.:)-]?\s*/i;
@@ -161,3 +161,128 @@ const titleCase = (s: string) =>
     .replace(/[.:#-]+$/, '')
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Best-effort set metadata from packet text (used without AI, and as defaults the AI fills in). */
+export function guessMeta(text: string): {
+  tournament: string | null;
+  region: string | null;
+  level: 'novice' | 'intermediate' | 'advanced' | null;
+  year: number | null;
+} {
+  const head = text.slice(0, 4000);
+  const year = Number(/\b(20\d{2}|19\d{2})\b/.exec(head)?.[1]) || null;
+  const level = (/\b(novice|intermediate|advanced)\b/i.exec(head)?.[1].toLowerCase() ?? null) as
+    'novice' | 'intermediate' | 'advanced' | null;
+  if (/\bN\.?J\.?C\.?L\.?\b|National Junior Classical League/i.test(head))
+    return { tournament: 'NJCL', region: 'National', level, year };
+  const st = STATES.find((s) =>
+    new RegExp(`\\b${s}\\s+(?:Junior Classical League|J\\.?C\\.?L\\.?)`, 'i').test(head),
+  );
+  if (st) return { tournament: `${st} JCL`, region: st, level, year };
+  const college = /^[^\n]*\b(?:University|College|Institute)\b[^\n]*$/im.exec(head)?.[0].trim();
+  if (college)
+    return {
+      tournament: college.replace(/\s+/g, ' ').slice(0, 60),
+      region: 'Competitive Circuit',
+      level,
+      year,
+    };
+  const school = /^[^\n]*\b(?:High School|Academy|Prep(?:aratory)?)\b[^\n]*$/im.exec(head)?.[0].trim();
+  const state = STATES.find((s) => new RegExp(`\\b${s}\\b`).test(head)) ?? null;
+  if (school) return { tournament: school.replace(/\s+/g, ' ').slice(0, 60), region: state, level, year };
+  return { tournament: null, region: state, level, year };
+}
+
+const STATES = [
+  'Alabama',
+  'Alaska',
+  'Arizona',
+  'Arkansas',
+  'California',
+  'Colorado',
+  'Connecticut',
+  'Delaware',
+  'Florida',
+  'Georgia',
+  'Hawaii',
+  'Idaho',
+  'Illinois',
+  'Indiana',
+  'Iowa',
+  'Kansas',
+  'Kentucky',
+  'Louisiana',
+  'Maine',
+  'Maryland',
+  'Massachusetts',
+  'Michigan',
+  'Minnesota',
+  'Mississippi',
+  'Missouri',
+  'Montana',
+  'Nebraska',
+  'Nevada',
+  'New Hampshire',
+  'New Jersey',
+  'New Mexico',
+  'New York',
+  'North Carolina',
+  'North Dakota',
+  'Ohio',
+  'Oklahoma',
+  'Oregon',
+  'Pennsylvania',
+  'Rhode Island',
+  'South Carolina',
+  'South Dakota',
+  'Tennessee',
+  'Texas',
+  'Utah',
+  'Vermont',
+  'Virginia',
+  'Washington',
+  'West Virginia',
+  'Wisconsin',
+  'Wyoming',
+];
+
+/** Keyword guess at the main category for the no-AI path. Grammar wins ties: it is the most common. */
+export function guessCategory(q: Question): Category | null {
+  const t = `${q.tossup} ${q.bonuses.map((b) => b.q).join(' ')}`.toLowerCase();
+  const score = (res: RegExp[]) => res.reduce((n, r) => n + (r.test(t) ? 1 : 0), 0);
+  const s: Record<Category, number> = {
+    Grammar: score([
+      /\btranslat/,
+      /\blatin (?:for|word|verb|noun|adjective|phrase)\b/,
+      /\bcase\b/,
+      /\bform of\b/,
+      /\bderiv/,
+      /\bsubjunctive|indicative|imperative|infinitive|participle|gerund|supine|ablative|genitive|dative|accusative|vocative|locative\b/,
+      /\bconjugat|declension|declin|synonym|antonym|abbreviation|motto\b/,
+      /\bwhat (?:latin )?(?:verb|noun|adjective|word|root)\b/,
+      /\bmeaning\b/,
+      /\bgive the\b/,
+    ]),
+    History: score([
+      /\bemperor|consul|senate|senator|tribune|dictator|praetor|censor|legion|republic|empire\b/,
+      /\bbattle|war|treaty|siege|conquer|revolt|reign|assassinat/,
+      /\b\d{1,3} ?(?:bc|b\.c\.|ad|a\.d\.)\b/,
+      /\bcentury\b/,
+      /\bprovince|forum|aqueduct|colosseum|circus maximus\b/,
+      /\bdaily life|toga|slave|gladiator|chariot|baths\b/,
+    ]),
+    Mythology: score([
+      /\bgod(?:dess)?\b/,
+      /\bmyth|nymph|titan|olymp|underworld|hades|hercules|heracles|jupiter|zeus|juno|hera|minerva|athena|apollo|diana|artemis|venus|aphrodite|mars|ares|mercury|hermes|neptune|poseidon|pluto|vulcan|bacchus|dionysus|ceres|demeter|vesta|cupid|psyche|perseus|theseus|jason|medea|odysseus|ulysses|achilles|hector|trojan|troy|argonaut|monster|centaur|cyclops|gorgon|medusa|minotaur|labyrinth\b/,
+      /\bmetamorphos|transform(?:ed|ation) into\b/,
+    ]),
+    Literature: score([
+      /\bauthor|poet|poem|epic|ode|satire|elegy|elegiac|hexameter|meter|metre|epigram|play(?:wright)?|comedy|tragedy|orat(?:or|ion)|speech|letter|epistle\b/,
+      /\bvergil|virgil|ovid|horace|catullus|cicero|caesar|livy|tacitus|plautus|terence|seneca|lucretius|propertius|tibullus|martial|juvenal|pliny|sallust|suetonius|quintilian|ennius|lucan|statius|petronius|apuleius\b/,
+      /\baeneid|metamorphoses|georgics|eclogues|de bello gallico|ab urbe condita|annales|carmina|odes|amores|ars amatoria|fasti|satyricon|pharsalia\b/,
+      /\bwrote|written by|work(?:s)? of\b/,
+    ]),
+  };
+  const best = (Object.keys(s) as Category[]).reduce((a, b) => (s[b] > s[a] ? b : a), 'Grammar');
+  return s[best] ? best : null;
+}

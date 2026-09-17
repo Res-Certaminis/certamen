@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseText, splitRounds } from '../src/lib/parse';
+import { guessCategory, guessMeta, parseText, splitRounds } from '../src/lib/parse';
 
 const njcl = `
 NJCL 2024 Novice Round 1
@@ -101,5 +101,53 @@ ANSWER: D`;
     expect(chunks.map((c) => c.round)).toEqual(['Round 1', 'Round 2']);
     expect(parseText(chunks[0].text)).toHaveLength(2);
     expect(parseText(chunks[0].text)[0].answer).toBe('CURIA');
+  });
+});
+
+describe('guessMeta', () => {
+  it('recognises NJCL as National', () => {
+    expect(guessMeta('2024 NJCL Convention\nCertamen Novice Round 1')).toEqual({
+      tournament: 'NJCL',
+      region: 'National',
+      level: 'novice',
+      year: 2024,
+    });
+  });
+  it('recognises a state JCL', () => {
+    expect(
+      guessMeta('Virginia Junior Classical League\nState Convention 2023\nAdvanced Certamen'),
+    ).toMatchObject({
+      tournament: 'Virginia JCL',
+      region: 'Virginia',
+      level: 'advanced',
+      year: 2023,
+    });
+  });
+  it('labels college-hosted invitationals as Competitive Circuit', () => {
+    expect(guessMeta('Yale University Certamen Invitational 2025\nIntermediate Division')).toMatchObject({
+      tournament: 'Yale University Certamen Invitational 2025',
+      region: 'Competitive Circuit',
+      level: 'intermediate',
+    });
+  });
+  it('uses the state for a high-school host and returns nulls when nothing is stated', () => {
+    expect(guessMeta('Thomas Jefferson High School Certamen\nAlexandria, Virginia').region).toBe('Virginia');
+    expect(guessMeta('TU 1: Who?\nANSWER: X')).toEqual({
+      tournament: null,
+      region: null,
+      level: null,
+      year: null,
+    });
+  });
+});
+
+describe('guessCategory', () => {
+  const q = (tossup: string) => ({ tossup, answer: '', bonuses: [] });
+  it('sorts obvious tossups into the four main categories', () => {
+    expect(guessCategory(q('Translate into English: Puella aquam portat.'))).toBe('Grammar');
+    expect(guessCategory(q('What Roman god of the sea carried a trident?'))).toBe('Mythology');
+    expect(guessCategory(q('Which emperor was assassinated in 41 AD after a short reign?'))).toBe('History');
+    expect(guessCategory(q('What poet wrote the Aeneid in dactylic hexameter?'))).toBe('Literature');
+    expect(guessCategory(q('Name the capital.'))).toBeNull();
   });
 });

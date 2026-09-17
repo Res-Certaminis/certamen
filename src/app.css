@@ -620,3 +620,40 @@ th {
     padding: 1.25rem;
   }
 }
+
+/* Read-only question cards in the review editor; click or Enter to edit. */
+.qcard {
+  cursor: pointer;
+}
+.qcard:hover {
+  border-color: var(--line-strong);
+}
+.qcard:focus-visible {
+  outline: none;
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.qcard .text {
+  margin: 0.25rem 0 0.5rem;
+  line-height: 1.55;
+}
+.qcard .ans {
+  font-weight: 600;
+}
+.qcard .ans::before {
+  content: 'Answer ';
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.bonus-ro {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+.bonus-ro .lbl {
+  font-size: 0.75rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}

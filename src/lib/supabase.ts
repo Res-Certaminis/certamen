@@ -32,7 +32,7 @@ export async function listSets(ownerOnly?: string): Promise<QuestionSet[]> {
 export async function getSet(id: string): Promise<QuestionSet> {
   const { data, error } = await need()
     .from('sets')
-    .select(`${SET_COLS},questions(id,idx,tossup,answer,bonuses,category)`)
+    .select(`${SET_COLS},questions(id,idx,tossup,answer,bonuses,category,subcategory)`)
     .eq('id', id)
     .order('idx', { referencedTable: 'questions' })
     .single();
@@ -52,7 +52,13 @@ export async function saveSet(set: QuestionSet): Promise<QuestionSet> {
     .select(SET_COLS)
     .single();
   if (error) throw error;
-  const rows = questions.map((q, idx) => ({ ...q, set_id: saved.id, idx, category: q.category || null }));
+  const rows = questions.map((q, idx) => ({
+    ...q,
+    set_id: saved.id,
+    idx,
+    category: q.category || null,
+    subcategory: q.subcategory?.trim() || null,
+  }));
   const { data: qs, error: qe } = await sb
     .from('questions')
     .upsert(rows, { defaultToNull: false })
@@ -86,15 +92,4 @@ export async function listBuzzes(questions: Question[]): Promise<BuzzRow[]> {
 }
 
 export const LEVELS = ['novice', 'intermediate', 'advanced'] as const;
-export const CATEGORIES = [
-  'Mythology',
-  'History',
-  'Grammar',
-  'Vocabulary',
-  'Derivatives',
-  'Literature',
-  'Culture',
-  'Geography',
-  'Mottoes & Abbreviations',
-  'Translation',
-];
+export { CATEGORIES, REGIONS } from './types';

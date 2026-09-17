@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyParsed, type ParsedPacket } from '../src/lib/ai';
+import { applyParsed, countQuestions, type ParsedPacket } from '../src/lib/ai';
 
 const parsed: ParsedPacket = {
   title: 'NJCL 2024 Novice Round 1',
@@ -13,6 +13,7 @@ const parsed: ParsedPacket = {
       tossup: 'Q?',
       answer: 'A',
       category: 'Mythology',
+      subcategory: 'Trojan War',
       bonuses: [
         { q: 'b1', a: 'a1' },
         { q: 'b2', a: 'a2' },
@@ -43,5 +44,14 @@ describe('applyParsed', () => {
     expect(s.public).toBe(false);
     expect(s.questions[0].bonuses).toHaveLength(3);
     expect(s.questions[0].category).toBe('Mythology');
+  });
+});
+
+describe('countQuestions', () => {
+  it('counts tossups in a partial structured-output stream', () => {
+    const partial =
+      '{"title":null,"questions":[{"tossup":"a","answer":"A","category":"Grammar","subcategory":null,"bonuses":[{"q":"b","a":"B"}]},{"tossup":"c","answer":"C","cat';
+    expect(countQuestions(partial)).toBe(2);
+    expect(countQuestions('{"title":"x","questions":[')).toBe(0);
   });
 });

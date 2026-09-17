@@ -8,8 +8,73 @@ export interface Question {
   tossup: string;
   answer: string;
   bonuses: Bonus[];
-  category?: string | null;
+  category?: Category | null; // one of the four main categories
+  subcategory?: string | null; // finer grain for analytics, e.g. "Subjunctive", "Derivatives"
 }
+
+/** The four main certamen categories. Finer distinctions go in `subcategory`. */
+export const CATEGORIES = ['Grammar', 'History', 'Mythology', 'Literature'] as const;
+export type Category = (typeof CATEGORIES)[number];
+
+/**
+ * Region: "National" for NJCL, a US state for state JCL events or school-hosted tournaments,
+ * "Competitive Circuit" for open invitationals (typically college-hosted) that belong to neither.
+ */
+export const REGIONS = [
+  'National',
+  'Competitive Circuit',
+  'Alabama',
+  'Alaska',
+  'Arizona',
+  'Arkansas',
+  'California',
+  'Colorado',
+  'Connecticut',
+  'Delaware',
+  'Florida',
+  'Georgia',
+  'Hawaii',
+  'Idaho',
+  'Illinois',
+  'Indiana',
+  'Iowa',
+  'Kansas',
+  'Kentucky',
+  'Louisiana',
+  'Maine',
+  'Maryland',
+  'Massachusetts',
+  'Michigan',
+  'Minnesota',
+  'Mississippi',
+  'Missouri',
+  'Montana',
+  'Nebraska',
+  'Nevada',
+  'New Hampshire',
+  'New Jersey',
+  'New Mexico',
+  'New York',
+  'North Carolina',
+  'North Dakota',
+  'Ohio',
+  'Oklahoma',
+  'Oregon',
+  'Pennsylvania',
+  'Rhode Island',
+  'South Carolina',
+  'South Dakota',
+  'Tennessee',
+  'Texas',
+  'Utah',
+  'Vermont',
+  'Virginia',
+  'Washington',
+  'West Virginia',
+  'Wisconsin',
+  'Wyoming',
+  'District of Columbia',
+] as const;
 
 export type Level = 'novice' | 'intermediate' | 'advanced';
 

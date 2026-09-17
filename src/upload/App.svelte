@@ -10,8 +10,9 @@
     listSets,
     LEVELS,
     CATEGORIES,
+    REGIONS,
   } from '../lib/supabase';
-  import { fileToText, parseText, splitRounds, type Chunk } from '../lib/parse';
+  import { fileToText, guessCategory, guessMeta, parseText, splitRounds, type Chunk } from '../lib/parse';
   import { aiKey, setAiKey, aiModel, setAiModel } from '../lib/store';
   import { AI_MODELS, type AiModel } from '../lib/ai';
   import type { Level, Question, QuestionSet } from '../lib/types';
@@ -48,8 +49,10 @@
   interface Job extends Chunk {
     status: Status;
     note: string;
+    progress?: number; // questions seen so far while streaming
     set?: QuestionSet;
   }
+  const CONCURRENCY = 4;
   interface Meta {
     tournament: string | null;
     year: number | null;
@@ -65,9 +68,9 @@
   let key = $state(aiKey());
   let model = $state<AiModel>(aiModel() as AiModel);
   let editing = $state<number | null>(null);
+  let editQ = $state<number | null>(null); // which tossup card is in edit mode
   let busy = $state(false);
   let saving = $state('');
-  let tokens = $state({ input: 0, output: 0 });
 
   const done = $derived(jobs.filter((j) => j.status === 'done').length);
   const failed = $derived(jobs.filter((j) => j.status === 'error').length);
@@ -91,9 +94,8 @@
     source = name;
     const split = splitRounds(text);
     preamble = split.preamble;
-    jobs = split.chunks.map((c) => ({ ...c, status: 'queued', note: '' }));
-    meta = { tournament: null, year: null, level: null, region: null };
-    tokens = { input: 0, output: 0 };
+    jobs = split.chunks.map((c) => ({ ...c, status: 'queued', note: '', progress: 0 }));
+    meta = guessMeta(split.preamble || text);
     stage = 'parse';
     runAll();
   }
@@ -109,14 +111,10 @@
       for (let j = queue.shift(); j; j = queue.shift()) {
         j.status = 'parsing';
         j.note = '';
+        j.progress = 0;
         try {
-          const p = await aiParse(
-            j.text,
-            key,
-            model,
-            preamble || (jobs.length === 1 ? '' : raw.slice(0, 1500)),
-          );
-          tokens = { input: tokens.input + p.usage.input, output: tokens.output + p.usage.output };
+          const ctx = preamble || (jobs.length === 1 ? '' : raw.slice(0, 1500));
+          const p = await aiParse(j.text, key, model, ctx, (n) => (j.progress = n));
           meta = {
             tournament: meta.tournament ?? p.tournament,
             year: meta.year ?? p.year,
@@ -130,7 +128,7 @@
         }
       }
     };
-    await Promise.all([worker(), worker()]);
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
     retitle();
   }
   function finish(j: Job, r: { questions: Question[]; round?: string | null; title?: string | null }) {
@@ -138,7 +136,11 @@
       title: '',
       public: true,
       round: j.round ?? r.round ?? null,
-      questions: r.questions.map((q) => ({ ...q, category: q.category ?? null })),
+      questions: r.questions.map((q) => ({
+        ...q,
+        category: q.category ?? guessCategory(q),
+        subcategory: q.subcategory ?? null,
+      })),
     };
     j.status = r.questions.length ? 'done' : 'error';
     j.note = r.questions.length ? `${r.questions.length} questions` : 'No questions found';
@@ -212,7 +214,7 @@
     await deleteSet(s.id!);
     loadMine();
   }
-  const blank = (): Question => ({ tossup: '', answer: '', bonuses: [], category: null });
+  const blank = (): Question => ({ tossup: '', answer: '', bonuses: [], category: null, subcategory: null });
 </script>
 
 <main>
@@ -340,7 +342,6 @@
           <p class="muted" style="margin:0">
             {jobs.length === 1 && !jobs[0].round ? 'One round' : `${jobs.length} rounds`}
             {#if running}· <span class="spin"></span> parsing with {key ? model : 'rules'}{:else}· {totalQ} questions{/if}
-            {#if tokens.input}· {(tokens.input + tokens.output).toLocaleString()} tokens{/if}
           </p>
         </div>
         <button class="ghost sm" onclick={reset} disabled={running}>Cancel</button>
@@ -381,11 +382,15 @@
                 type="text"
                 bind:value={meta.region}
                 onchange={retitle}
-                placeholder="National"
+                list="regions"
+                placeholder="National, a state, or Competitive Circuit"
               /></label
             >
           </div>
           <p class="muted" style="margin:0">Applies to every round below. Titles update automatically.</p>
+          <datalist id="regions"
+            >{#each REGIONS as r}<option value={r}></option>{/each}</datalist
+          >
         </div>
 
         {#each jobs as j, i}
@@ -393,7 +398,9 @@
             <span class="min">
               <strong>{j.set?.title || j.round || source}</strong>
               <span class="muted">
-                {#if j.status === 'parsing'}<span class="spin"></span> parsing…
+                {#if j.status === 'parsing'}<span class="spin"></span> parsing{j.progress
+                    ? ` · ${j.progress} questions so far`
+                    : '…'}
                 {:else if j.status === 'queued'}queued
                 {:else if j.status === 'error'}<span class="bad-text">{j.note}</span>
                 {:else}<span class="ok-text">✓</span> {j.note}{/if}
@@ -421,7 +428,13 @@
       {:else}
         {@const set = jobs[editing].set!}
         <div class="bar" style="margin-top:1rem">
-          <button class="ghost sm" onclick={() => (editing = null)}>← All rounds</button>
+          <button
+            class="ghost sm"
+            onclick={() => {
+              editing = null;
+              editQ = null;
+            }}>← All rounds</button
+          >
           <span class="muted">{set.questions.length} questions</span>
         </div>
         <div class="card">
@@ -437,46 +450,113 @@
             >
             <label>Year <input type="number" bind:value={set.year} min="1990" max="2100" /></label>
             <label>Tournament <input type="text" bind:value={set.tournament} placeholder="NJCL" /></label>
-            <label>Region <input type="text" bind:value={set.region} placeholder="National" /></label>
+            <label
+              >Region <input
+                type="text"
+                bind:value={set.region}
+                list="regions"
+                placeholder="National, a state, or Competitive Circuit"
+              /></label
+            >
             <label class="inline"><input type="checkbox" bind:checked={set.public} /> Public</label>
           </div>
         </div>
+        <p class="muted">Tap a question, or focus it and press Enter, to edit.</p>
         {#each set.questions as q, i}
-          <div class="card">
-            <div class="qhead">
-              <strong>Tossup {i + 1}</strong>
-              <input type="text" bind:value={q.category} list="categories" placeholder="Category" />
-              <button class="bad sm" onclick={() => set.questions.splice(i, 1)}>Remove</button>
-            </div>
-            <textarea bind:value={q.tossup} placeholder="Question"></textarea>
-            <input
-              type="text"
-              bind:value={q.answer}
-              placeholder="ANSWER"
-              style="width:100%;margin-top:.4rem"
-            />
-            {#each q.bonuses as b, j}
-              <div class="bonus">
-                <div class="bar">
-                  <span class="tag">B{j + 1}</span>
-                  <button class="sm" onclick={() => q.bonuses.splice(j, 1)} aria-label="Remove bonus"
-                    >×</button
-                  >
-                </div>
-                <textarea bind:value={b.q} placeholder="Bonus question" style="min-height:2.75rem"></textarea>
-                <input type="text" bind:value={b.a} placeholder="ANSWER" />
+          {#if editQ === i}
+            <div class="card">
+              <div class="qhead">
+                <strong>Tossup {i + 1}</strong>
+                <select bind:value={q.category}>
+                  <option value={null}>Category…</option>
+                  {#each CATEGORIES as c}<option value={c}>{c}</option>{/each}
+                </select>
+                <button class="sm" onclick={() => (editQ = null)}>Done</button>
               </div>
-            {/each}
-            {#if q.bonuses.length < 3}<button class="sm" onclick={() => q.bonuses.push({ q: '', a: '' })}
-                >+ bonus</button
-              >{/if}
-          </div>
+              <input
+                type="text"
+                bind:value={q.subcategory}
+                placeholder="Subcategory (optional), e.g. Subjunctive"
+                style="width:100%;margin-bottom:.4rem"
+              />
+              <textarea bind:value={q.tossup} placeholder="Question"></textarea>
+              <input
+                type="text"
+                bind:value={q.answer}
+                placeholder="ANSWER"
+                style="width:100%;margin-top:.4rem"
+              />
+              {#each q.bonuses as b, j}
+                <div class="bonus" style="grid-template-columns:1fr">
+                  <div class="bar">
+                    <span class="tag">B{j + 1}</span>
+                    <button class="sm" onclick={() => q.bonuses.splice(j, 1)} aria-label="Remove bonus"
+                      >×</button
+                    >
+                  </div>
+                  <textarea bind:value={b.q} placeholder="Bonus question" style="min-height:2.75rem"
+                  ></textarea>
+                  <input type="text" bind:value={b.a} placeholder="ANSWER" />
+                </div>
+              {/each}
+              <div class="row" style="margin-top:.75rem">
+                {#if q.bonuses.length < 3}<button class="sm" onclick={() => q.bonuses.push({ q: '', a: '' })}
+                    >+ bonus</button
+                  >{/if}
+                <button
+                  class="bad sm"
+                  onclick={() => {
+                    set.questions.splice(i, 1);
+                    editQ = null;
+                  }}>Remove tossup</button
+                >
+              </div>
+            </div>
+          {:else}
+            <div
+              class="card qcard"
+              role="button"
+              tabindex="0"
+              aria-label="Edit tossup {i + 1}"
+              onclick={() => (editQ = i)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  editQ = i;
+                }
+              }}
+            >
+              <div class="bar">
+                <strong>Tossup {i + 1}</strong>
+                <span class="row">
+                  {#if q.category}<span class="tag accent">{q.category}</span>{:else}<span class="tag"
+                      >no category</span
+                    >{/if}
+                  {#if q.subcategory}<span class="tag">{q.subcategory}</span>{/if}
+                </span>
+              </div>
+              <p class="text">{q.tossup || '—'}</p>
+              <p class="ans">{q.answer || '—'}</p>
+              {#each q.bonuses as b, j}
+                <div class="bonus-ro">
+                  <span class="lbl">B{j + 1}</span>
+                  <span>{b.q}</span>
+                  <span class="ans">{b.a}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
         {/each}
-        <datalist id="categories"
-          >{#each CATEGORIES as c}<option value={c}></option>{/each}</datalist
+        <datalist id="regions"
+          >{#each REGIONS as r}<option value={r}></option>{/each}</datalist
         >
         <div class="row">
-          <button onclick={() => set.questions.push(blank())}>+ tossup</button>
+          <button
+            onclick={() => {
+              set.questions.push(blank());
+              editQ = set.questions.length - 1;
+            }}>+ tossup</button
+          >
           <button
             class="primary"
             onclick={async () => {
