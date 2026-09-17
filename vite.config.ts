@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'Certamen',
         short_name: 'Certamen',
         description: 'Latin quiz bowl buzzer and practice app',
-        theme_color: '#7c1d1d',
-        background_color: '#fbf7f0',
+        theme_color: '#5b21b6',
+        background_color: '#0b0b0f',
         display: 'standalone',
         start_url: '/',
         icons: [
@@ -23,7 +23,11 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        globIgnores: ['**/parsers-*.js', '**/pdf.worker*'], // docx/pdf parsers load lazily in the upload app only
+        globIgnores: [
+          '**/parsers-*.js',
+          '**/pdf.worker*',
+          '**/inter-{cyrillic,cyrillic-ext,greek,greek-ext,vietnamese,latin-ext}-*',
+        ], // docx/pdf parsers load lazily in the upload app only
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/ws\//, /^\/upload/],
       },

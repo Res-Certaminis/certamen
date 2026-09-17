@@ -11,11 +11,14 @@
   let remote = $state<QuestionSet[]>([]);
   let error = $state('');
   let busy = $state('');
+  const online = configured && navigator.onLine;
+  let loading = $state(online);
 
-  if (configured && navigator.onLine)
+  if (online)
     listSets()
       .then((s) => (remote = s))
-      .catch((e) => (error = e.message));
+      .catch((e) => (error = e.message))
+      .finally(() => (loading = false));
 
   const sets = $derived(
     [...saved, ...remote.filter((r) => !saved.some((s) => s.id === r.id))].filter(
@@ -23,10 +26,8 @@
     ),
   );
   const isSaved = (s: QuestionSet) => saved.some((x) => x.id === s.id);
-  const meta = (s: QuestionSet) =>
-    [s.level, s.year, s.tournament, s.region, s.round].filter(Boolean).join(' · ');
+  const meta = (s: QuestionSet) => [s.year, s.tournament, s.region, s.round].filter(Boolean).join(' · ');
 
-  /** Full set (questions included), from the offline copy or the server. */
   async function full(s: QuestionSet) {
     return s.questions.length ? s : getSet(s.id!);
   }
@@ -52,52 +53,77 @@
   }
 </script>
 
-<h1>Certamen</h1>
-<p class="muted">Latin quiz bowl buzzer and practice. Works offline once a set is saved.</p>
+<section class="hero">
+  <h1>Latin quiz bowl,<br />built for buzzing.</h1>
+  <p class="muted">Host a room, join from any phone, or drill a set offline.</p>
+</section>
 
-<div class="card row">
-  <label>Your name <input type="text" bind:value={name} placeholder="Marcus" maxlength="24" /></label>
+<div class="card stack">
   <label
-    >Join a room <input
+    >Your name <input
       type="text"
-      bind:value={code}
-      placeholder="CODE"
-      maxlength="8"
-      style="width:7rem"
+      bind:value={name}
+      placeholder="Marcus"
+      maxlength="24"
+      autocomplete="nickname"
     /></label
   >
-  <button class="primary" onclick={join} disabled={!code.trim() || !name.trim()}>Join</button>
+  <form
+    class="answer-form"
+    onsubmit={(e) => {
+      e.preventDefault();
+      join();
+    }}
+  >
+    <input
+      type="text"
+      bind:value={code}
+      placeholder="Room code"
+      maxlength="8"
+      autocapitalize="characters"
+      autocomplete="off"
+    />
+    <button class="primary" type="submit" disabled={!code.trim() || !name.trim()}>Join</button>
+  </form>
 </div>
 
-<div class="bar">
+<div class="bar" style="margin-top:1.5rem">
   <h2>Question sets</h2>
-  <select bind:value={level}>
-    <option value="">All levels</option>
-    {#each LEVELS as l}<option value={l}>{l}</option>{/each}
-  </select>
+  <div class="seg" role="tablist" aria-label="Level">
+    <button class:on={level === ''} onclick={() => (level = '')}>All</button>
+    {#each LEVELS as l}<button class:on={level === l} onclick={() => (level = l)}>{l}</button>{/each}
+  </div>
 </div>
 {#if !configured}
   <p class="muted">Supabase is not configured, so only sets saved on this device are shown.</p>
 {/if}
 {#if error}<p class="bad-text">{error}</p>{/if}
-{#if !sets.length}
-  <p class="muted">No sets yet. <a href="/upload/">Upload a packet</a> to get started.</p>
+{#if loading && !sets.length}
+  <p class="empty">Loading sets…</p>
+{:else if !sets.length}
+  <p class="empty">No sets yet. <a href="/upload/">Upload a packet</a> to get started.</p>
 {/if}
 {#each sets as s (s.id)}
-  <div class="card">
+  <article class="card">
     <div class="bar">
       <div>
-        <strong>{s.title}</strong>
-        <div class="muted">
-          {meta(s)}
-          · {s.questions.length || s.count || 0} questions
+        <h3>{s.title}</h3>
+        <p class="muted" style="margin:0">
+          {#if s.level}<span class="tag accent">{s.level}</span>{/if}
+          {meta(s)}{meta(s) ? ' · ' : ''}{s.questions.length || s.count || 0} questions
           {#if isSaved(s)}<span class="tag">offline</span>{/if}
-        </div>
+        </p>
       </div>
-      <button onclick={() => toggleSave(s)} title="Save for offline play">{isSaved(s) ? '★' : '☆'}</button>
+      <button
+        class="ghost sm"
+        onclick={() => toggleSave(s)}
+        aria-label={isSaved(s) ? 'Remove offline copy' : 'Save for offline'}
+        title="Save for offline play"
+      >
+        {isSaved(s) ? '★' : '☆'}
+      </button>
     </div>
-    <div class="row">
-      <button onclick={() => go(s, '/solo')} disabled={!name.trim() || busy === s.id}>Practice solo</button>
+    <div class="row" style="margin-top:.75rem">
       <button
         class="primary"
         onclick={() => go(s, `/r/${roomCode()}`)}
@@ -105,18 +131,20 @@
       >
         Host a room
       </button>
-      {#if configured}<a
-          href="/s/{s.id}"
-          onclick={(e) => {
-            e.preventDefault();
-            nav(`/s/${s.id}`);
-          }}>Buzz stats</a
-        >{/if}
+      <button onclick={() => go(s, '/solo')} disabled={!name.trim() || busy === s.id}>Practice solo</button>
+      {#if configured}
+        <button class="ghost" onclick={() => nav(`/s/${s.id}`)}>Buzz stats</button>
+      {/if}
     </div>
-  </div>
+  </article>
 {/each}
 
-<p class="muted">
-  <a href="/upload/">Upload or edit question sets</a> ·
-  <a href="https://github.com/Res-Certaminis/certamen">Source</a>
+<p class="muted" style="margin-top:2rem">
+  <a href="https://github.com/Res-Certaminis/certamen">Open source on GitHub</a>
 </p>
+
+<style>
+  .hero {
+    padding: 0.5rem 0 1rem;
+  }
+</style>

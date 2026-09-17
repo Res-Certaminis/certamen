@@ -35,7 +35,7 @@
   );
 </script>
 
-<p class="muted"><a href="/">← Home</a></p>
+<p><a href="/">← Home</a></p>
 {#if error}<p class="bad-text">{error}</p>{/if}
 {#if set}
   <div class="bar">
@@ -54,20 +54,23 @@
 
   <div class="card">
     <h3>By category</h3>
-    <table>
-      <thead
-        ><tr><th>Category</th><th>Questions</th><th>Buzzes</th><th>Correct</th><th>Avg. correct buzz</th></tr
-        ></thead
-      >
-      <tbody>
-        {#each categories as c}
-          <tr>
-            <td>{c.cat}</td><td>{c.qs}</td><td>{c.n}</td><td>{pct(c.correct, c.n)}</td>
-            <td>{isNaN(c.pos) ? '–' : pct(Math.round(c.pos * 100), 100) + ' through'}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table>
+        <thead
+          ><tr
+            ><th>Category</th><th>Questions</th><th>Buzzes</th><th>Correct</th><th>Avg. correct buzz</th></tr
+          ></thead
+        >
+        <tbody>
+          {#each categories as c}
+            <tr>
+              <td>{c.cat}</td><td>{c.qs}</td><td>{c.n}</td><td>{pct(c.correct, c.n)}</td>
+              <td>{isNaN(c.pos) ? '–' : pct(Math.round(c.pos * 100), 100) + ' through'}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
     <p class="muted">
       "Avg. correct buzz" is how far through the tossup a correct buzz landed, on average (reader mode only).
     </p>
@@ -101,33 +104,27 @@
 {/if}
 
 <style>
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th,
-  td {
-    text-align: left;
-    padding: 0.25rem 0.5rem;
-    border-bottom: 1px solid var(--line);
-  }
   .strip {
     position: relative;
-    height: 14px;
-    border-radius: 7px;
-    background: var(--line);
-    margin-top: 0.5rem;
+    height: 12px;
+    border-radius: 6px;
+    background: var(--input);
+    border: 1px solid var(--line);
+    margin-top: 0.6rem;
   }
   .mark {
     position: absolute;
-    top: 0;
-    width: 6px;
-    height: 14px;
-    margin-left: -3px;
-    border-radius: 3px;
+    top: 1px;
+    width: 5px;
+    height: 8px;
+    margin-left: -2.5px;
+    border-radius: 2px;
     background: var(--ok);
   }
   .mark.bad {
     background: var(--bad);
+  }
+  .table-wrap {
+    overflow-x: auto;
   }
 </style>

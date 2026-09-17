@@ -10,6 +10,7 @@
     LEVELS,
     CATEGORIES,
   } from '../lib/supabase';
+  import Brand from '../lib/Brand.svelte';
   import { fileToText, parseText } from '../lib/parse';
   import type { Question, QuestionSet } from '../lib/types';
 
@@ -90,25 +91,25 @@
 </script>
 
 <main>
-  <div class="bar">
-    <h1>Upload questions</h1>
-    <span>
-      <a href="/">Play</a>
-      {#if session}· <button onclick={() => supabase!.auth.signOut()}>Sign out</button>{/if}
-    </span>
-  </div>
+  <Brand>
+    <a href="/">Play</a>
+    {#if session}<button class="ghost sm" onclick={() => supabase!.auth.signOut()}>Sign out</button>{/if}
+  </Brand>
+  <h1>Question sets</h1>
+  <p class="muted">Drop a packet, fix the parse, publish. Everything is editable before it goes live.</p>
 
   {#if !configured}
     <p class="bad-text">Supabase is not configured. Copy <code>.env.example</code> to <code>.env</code>.</p>
   {:else if !session}
     <div class="card">
       <p>Sign in to upload and manage question sets.</p>
-      <div class="row">
-        <button onclick={() => oauth('github')}>Continue with GitHub</button>
-        <button onclick={() => oauth('google')}>Continue with Google</button>
+      <div class="stack">
+        <button class="wide" onclick={() => oauth('google')}>Continue with Google</button>
+        <button class="wide" onclick={() => oauth('github')}>Continue with GitHub</button>
       </div>
+      <p class="muted" style="text-align:center">or</p>
       <form
-        class="row"
+        class="answer-form"
         onsubmit={(e) => {
           e.preventDefault();
           magic();
@@ -155,7 +156,7 @@
       {/each}
     {:else}
       <div class="card">
-        <div class="row">
+        <div class="fields">
           <label>Title <input type="text" bind:value={set.title} required /></label>
           <label
             >Level
@@ -176,7 +177,7 @@
           <label>Tournament <input type="text" bind:value={set.tournament} placeholder="NJCL" /></label>
           <label>Region <input type="text" bind:value={set.region} placeholder="National" /></label>
           <label>Round <input type="text" bind:value={set.round} placeholder="Round 3" /></label>
-          <label><input type="checkbox" bind:checked={set.public} /> Public</label>
+          <label class="inline"><input type="checkbox" bind:checked={set.public} /> Public</label>
         </div>
         <p class="muted">
           {set.questions.length} questions

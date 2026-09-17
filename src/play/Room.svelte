@@ -43,4 +43,7 @@
 {:else}
   <p>Connecting to room {code}…</p>
 {/if}
-<p class="muted bar"><a href="/">← Home</a> <span>{status}</span></p>
+<p class="bar">
+  <a href="/">← Home</a>
+  <span class="status"><span class="dot" class:on={status === 'online'}></span>{status}</span>
+</p>

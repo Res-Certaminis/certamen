@@ -41,6 +41,9 @@
     deadline ? Math.min(ANSWER_MS / 1000, Math.max(0, Math.ceil((deadline - serverNow) / 1000))) : 0,
   );
   const lastRuling = $derived([...g.results].reverse().find((r) => r.qi === g.qi));
+  const thisQ = $derived(g.results.filter((r) => r.qi === g.qi));
+  const inPlay = $derived(g.phase !== 'lobby' && g.phase !== 'done');
+  const showMarkers = $derived(g.phase === 'dead' && g.mode === 'reader' && thisQ.length > 0);
 
   let key = $state(buzzKey());
   let capturing = $state(false);
@@ -92,285 +95,288 @@
   }
   const pname = (id: string) => g.players[id]?.name ?? '?';
   const val = (e: { currentTarget: HTMLInputElement | HTMLSelectElement }) => e.currentTarget.value;
+  const members = (i: number) => Object.values(g.players).filter((p) => p.team === i);
+  const keyLabel = (k: string) => k.replace(/^Key|^Digit/, '');
 </script>
 
 <svelte:window onkeydown={onKey} />
 
 <div class="bar">
-  <strong>{g.setTitle || (solo ? 'Solo practice' : `Room ${g.code}`)}</strong>
-  <span class="muted">{g.total ? `Q${Math.min(g.qi + 1, g.total)}/${g.total}` : ''} {g.phase}</span>
+  <div class="min">
+    <h2>{g.setTitle || (solo ? 'Solo practice' : `Room ${g.code}`)}</h2>
+    <p class="muted" style="margin:0">
+      {g.total ? `Question ${Math.min(g.qi + 1, g.total)} of ${g.total} · ` : ''}{g.mode === 'reader'
+        ? 'App reads'
+        : 'Moderator reads'}
+    </p>
+  </div>
+  {#if !solo}<span class="tag accent" style="font-size:1rem;padding:.25rem .7rem">{g.code}</span>{/if}
 </div>
 
-<div class="grid side">
-  <div>
-    {#if g.phase === 'lobby'}
-      <div class="card">
+<!-- Team scores. In the lobby these are the team picker. -->
+<div class="teams" role={g.phase === 'lobby' && !solo ? 'radiogroup' : undefined}>
+  {#each g.teams as t, i}
+    <svelte:element
+      this={g.phase === 'lobby' && !solo ? 'button' : 'div'}
+      class="team"
+      class:mine={!solo && myTeam === i}
+      role={g.phase === 'lobby' && !solo ? 'radio' : undefined}
+      aria-checked={g.phase === 'lobby' && !solo ? myTeam === i : undefined}
+      onclick={g.phase === 'lobby' && !solo ? () => send({ t: 'team', id: me, team: i }) : undefined}
+    >
+      <div class="name">
+        <span>{t}</span>
+        {#if g.locked.includes(i) && (g.phase === 'reading' || g.phase === 'buzzed')}<span class="tag"
+            >locked</span
+          >{/if}
+      </div>
+      <div class="score">{totals[i]}</div>
+      {#if !solo}
+        <div class="muted" style="font-size:.8rem">
+          {#each members(i) as p (p.id)}
+            <span><span class="dot" class:on={p.online}></span>{p.name}{p.id === g.hostId ? ' ★' : ''}</span
+            >{' '}
+          {:else}
+            <span>—</span>
+          {/each}
+        </div>
+      {/if}
+    </svelte:element>
+  {/each}
+</div>
+
+{#if g.phase === 'lobby'}
+  <div class="card stack">
+    {#if !solo}
+      <p class="muted" style="margin:0">
+        Share the code <strong style="color:var(--fg)">{g.code}</strong> or this page's link. Tap a team above to
+        switch.
+      </p>
+      <label
+        >Name
+        <input
+          type="text"
+          value={mine?.name ?? ''}
+          maxlength="24"
+          onchange={(e) => {
+            setPlayerName(val(e));
+            send({ t: 'rename', id: me, name: val(e) });
+          }}
+        /></label
+      >
+    {/if}
+    {#if isHost}
+      <fieldset>
+        <legend>{solo ? 'Settings' : 'Host settings'}</legend>
         {#if !solo}
-          <h2>Room {g.code}</h2>
-          <p class="muted">
-            Share this code or the page link. Players buzz with <kbd>{key}</kbd> or the button.
-          </p>
           <label
-            >Name
+            >Mode
+            <select value={g.mode} onchange={(e) => send({ t: 'config', mode: val(e) as Mode })}>
+              <option value="reader">App reads the question</option>
+              <option value="live">Moderator reads aloud</option>
+            </select></label
+          >
+          <label
+            >Teams
             <input
               type="text"
-              value={mine?.name ?? ''}
-              maxlength="24"
-              onchange={(e) => {
-                setPlayerName(val(e));
-                send({ t: 'rename', id: me, name: val(e) });
-              }}
+              value={g.teams.join(', ')}
+              placeholder="Comma separated"
+              onchange={(e) => send({ t: 'config', teams: val(e).split(',') })}
             /></label
           >
-          <p>Team:</p>
-          <div class="row">
-            {#each g.teams as t, i}
-              <button class:primary={myTeam === i} onclick={() => send({ t: 'team', id: me, team: i })}
-                >{t}</button
-              >
-            {/each}
-          </div>
         {/if}
-        {#if isHost}
-          <fieldset>
-            <legend>{solo ? 'Settings' : 'Host settings'}</legend>
-            {#if !solo}
-              <label
-                >Mode
-                <select value={g.mode} onchange={(e) => send({ t: 'config', mode: val(e) as Mode })}>
-                  <option value="reader">App reads the question</option>
-                  <option value="live">Moderator reads aloud (buzzers + scoring only)</option>
-                </select></label
-              >
-              <label
-                >Teams (comma separated)
-                <input
-                  type="text"
-                  value={g.teams.join(', ')}
-                  onchange={(e) => send({ t: 'config', teams: val(e).split(',') })}
-                /></label
-              >
-            {/if}
-            <label
-              >Reading speed
-              <input
-                type="range"
-                min="100"
-                max="400"
-                step="10"
-                value={g.wpm}
-                oninput={(e) => send({ t: 'config', wpm: +val(e) })}
-              />
-              {g.wpm} wpm</label
-            >
-            <button class="primary" onclick={() => send({ t: 'start' })} disabled={!g.total}>
-              {g.total ? 'Start' : 'Waiting for a question set…'}
-            </button>
-          </fieldset>
-        {:else}
-          <p class="muted">Waiting for {pname(g.hostId ?? '')} to start.</p>
-        {/if}
-      </div>
-    {:else if g.phase === 'done'}
-      <div class="card">
-        <h2>Final score</h2>
-        {#each g.teams as t, i}<p><span class="score">{totals[i]}</span> {t}</p>{/each}
-        {#if isHost}<button class="primary" onclick={() => send({ t: 'reset' })}>Back to lobby</button>{/if}
-      </div>
+        <label
+          >Speed
+          <input
+            type="range"
+            min="100"
+            max="400"
+            step="10"
+            value={g.wpm}
+            oninput={(e) => send({ t: 'config', wpm: +val(e) })}
+          />
+          <span style="min-width:4.5rem;text-align:right">{g.wpm} wpm</span></label
+        >
+        <button class="primary" onclick={() => send({ t: 'start' })} disabled={!g.total}>
+          {g.total ? 'Start' : 'Waiting for a question set…'}
+        </button>
+      </fieldset>
     {:else}
-      <div class="card">
-        <h3>
-          Tossup {g.qi + 1}
-          {#if g.question?.category}<span class="tag">{g.question.category}</span>{/if}
-        </h3>
-        {#if g.mode === 'reader' || isHost}
-          <p class="q">
-            {g.phase === 'reading' || g.phase === 'buzzed'
-              ? tossup.slice(0, isHost && g.mode === 'live' ? tossup.length : words).join(' ')
-              : tossup.join(' ')}
+      <p class="muted">Waiting for {pname(g.hostId ?? '')} to start.</p>
+    {/if}
+  </div>
+{:else if g.phase === 'done'}
+  <div class="card">
+    <h2>Final score</h2>
+    {#each g.teams as t, i}
+      <div class="bar"><span>{t}</span><span class="score">{totals[i]}</span></div>
+    {/each}
+    {#if isHost}<button class="primary" style="margin-top:1rem" onclick={() => send({ t: 'reset' })}
+        >Back to lobby</button
+      >{/if}
+  </div>
+{:else}
+  <div class="card">
+    <div class="bar">
+      <h3>Tossup {g.qi + 1}</h3>
+      {#if g.question?.category}<span class="tag">{g.question.category}</span>{/if}
+    </div>
+
+    {#if showMarkers}
+      <p class="q">
+        {#each tossup as w, i}
+          {w}{#each thisQ.filter((r) => r.word === i + 1) as r}<span
+              class={r.correct ? 'ok-text' : 'bad-text'}
+              title={pname(r.player)}>▮</span
+            >{/each}{' '}
+        {/each}
+      </p>
+    {:else if g.mode === 'reader' || isHost}
+      <p class="q">
+        {g.phase === 'reading' || g.phase === 'buzzed'
+          ? tossup.slice(0, isHost && g.mode === 'live' ? tossup.length : words).join(' ')
+          : tossup.join(' ')}
+      </p>
+    {:else}
+      <p class="q muted">Listen to the moderator…</p>
+    {/if}
+
+    {#if g.phase === 'reading' && g.locked.includes(myTeam)}
+      <p class="bad-text">Your team is locked out of this tossup.</p>
+    {:else if g.phase === 'buzzed'}
+      {#if myBuzz && g.mode === 'reader'}
+        <form
+          onsubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+          class="answer-form"
+        >
+          <input
+            type="text"
+            bind:this={input}
+            bind:value={answer}
+            placeholder="Your answer"
+            autocomplete="off"
+            autocapitalize="off"
+          />
+          <button class="primary" type="submit">Answer · {secondsLeft}</button>
+        </form>
+      {:else}
+        <p>
+          <strong>{pname(g.buzz?.player ?? '')}</strong> buzzed{g.mode === 'reader'
+            ? ` · ${secondsLeft}s`
+            : ''}
+        </p>
+      {/if}
+    {:else if g.phase === 'bonus' && g.question}
+      <p class="ok-text">{pname(result?.player ?? '')} · {g.question.answer || 'correct'}</p>
+      {#each g.question.bonuses as b, i}
+        {#if i <= g.bonusIdx}
+          <p>
+            <span class="tag">B{i + 1}</span>
+            {#if g.mode === 'reader' || isHost}{b.q}{/if}
+            {#if result?.bonuses[i] === true}<span class="ok-text"> ✓ {b.a}</span>
+            {:else if result?.bonuses[i] === false}<span class="bad-text"> ✗ {b.a}</span>{/if}
           </p>
-        {:else}
-          <p class="q muted">Listen to the moderator…</p>
         {/if}
-
-        {#if g.phase === 'reading'}
-          {#if g.locked.includes(myTeam)}
-            <p class="bad-text">Your team is locked out of this tossup.</p>
-          {/if}
-          <button class="buzz" class:hot={canBuzz && !buzzed} onclick={buzz} disabled={!canBuzz || buzzed}>
-            {buzzed ? '…' : 'BUZZ'}
-          </button>
-        {:else if g.phase === 'buzzed'}
-          {#if myBuzz && g.mode === 'reader'}
-            <form
-              onsubmit={(e) => {
-                e.preventDefault();
-                submit();
-              }}
-              class="row"
-            >
-              <input
-                type="text"
-                bind:this={input}
-                bind:value={answer}
-                placeholder="Your answer"
-                autocomplete="off"
-                autocapitalize="off"
-                style="flex:1"
-              />
-              <button class="primary" type="submit">Answer ({secondsLeft})</button>
-            </form>
-          {:else}
-            <p>
-              <strong>{pname(g.buzz?.player ?? '')}</strong> buzzed{g.mode === 'reader'
-                ? ` (${secondsLeft}s)`
-                : ''}.
-            </p>
-          {/if}
-        {:else if g.phase === 'bonus' && g.question}
-          <p class="ok-text">Tossup: {pname(result?.player ?? '')} — {g.question.answer || '✓'}</p>
+      {/each}
+      {#if g.mode === 'reader' && ((onBonusTeam && !isHost) || solo)}
+        <form
+          onsubmit={(e) => {
+            e.preventDefault();
+            submitBonus();
+          }}
+          class="answer-form"
+        >
+          <input
+            type="text"
+            bind:value={answer}
+            placeholder={solo ? 'Your answer' : 'Team answer'}
+            autocomplete="off"
+            autocapitalize="off"
+          />
+          <button class="primary" type="submit">Answer</button>
+        </form>
+      {/if}
+    {:else if g.phase === 'dead' && g.question}
+      <p><span class="muted">Answer</span> <strong>{g.question.answer}</strong></p>
+      {#each thisQ as r}
+        <p class={r.correct ? 'ok-text' : 'bad-text'}>
+          {pname(r.player)} buzzed at word {r.word}/{tossup.length}{r.answer ? ` with "${r.answer}"` : ''}: {r.correct
+            ? 'correct'
+            : 'incorrect'}
+        </p>
+      {/each}
+      {#if g.question.bonuses.length}
+        <ul>
           {#each g.question.bonuses as b, i}
-            {#if i <= g.bonusIdx}
-              <p>
-                <strong>B{i + 1}.</strong>
-                {#if g.mode === 'reader' || isHost}{b.q}{/if}
-                {#if result?.bonuses[i] === true}<span class="ok-text"> ✓ {b.a}</span>
-                {:else if result?.bonuses[i] === false}<span class="bad-text"> ✗ {b.a}</span>{/if}
-              </p>
-            {/if}
+            <li>
+              {b.q} <strong>{b.a}</strong>
+              {#if result?.bonuses[i] === true}<span class="ok-text">✓</span
+                >{:else if result?.bonuses[i] === false}<span class="bad-text">✗</span>{/if}
+            </li>
           {/each}
-          {#if g.mode === 'reader' && onBonusTeam && !isHost}
-            <form
-              onsubmit={(e) => {
-                e.preventDefault();
-                submitBonus();
-              }}
-              class="row"
-            >
-              <input
-                type="text"
-                bind:value={answer}
-                placeholder="Team answer"
-                autocomplete="off"
-                autocapitalize="off"
-                style="flex:1"
-              />
-              <button class="primary" type="submit">Answer</button>
-            </form>
-          {:else if g.mode === 'reader' && solo}
-            <form
-              onsubmit={(e) => {
-                e.preventDefault();
-                submitBonus();
-              }}
-              class="row"
-            >
-              <input
-                type="text"
-                bind:value={answer}
-                placeholder="Your answer"
-                autocomplete="off"
-                autocapitalize="off"
-                style="flex:1"
-              />
-              <button class="primary" type="submit">Answer</button>
-            </form>
-          {/if}
-        {:else if g.phase === 'dead' && g.question}
-          {#if g.mode === 'reader' && g.results.some((r) => r.qi === g.qi)}
-            <p class="q">
-              {#each tossup as w, i}
-                {w}{#each g.results.filter((r) => r.qi === g.qi && r.word === i + 1) as r}<span
-                    class={r.correct ? 'ok-text' : 'bad-text'}
-                    title={pname(r.player)}>▮</span
-                  >{/each}{' '}
-              {/each}
-            </p>
-          {/if}
-          <p><strong>Answer:</strong> {g.question.answer}</p>
-          {#each g.results.filter((r) => r.qi === g.qi) as r}
-            <p class={r.correct ? 'ok-text' : 'bad-text'}>
-              {pname(r.player)} buzzed at word {r.word}/{tossup.length}{r.answer
-                ? ` with "${r.answer}"`
-                : ''}: {r.correct ? 'correct' : 'incorrect'}
-            </p>
-          {/each}
-          <ul>
-            {#each g.question.bonuses as b, i}
-              <li>
-                {b.q} <strong>{b.a}</strong>
-                {#if result?.bonuses[i] === true}<span class="ok-text">✓</span
-                  >{:else if result?.bonuses[i] === false}<span class="bad-text">✗</span>{/if}
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
-
-      {#if isHost}
-        <div class="card row">
-          {#if g.phase === 'reading'}
-            {#if g.mode === 'live' && g.question}<span><strong>Answer:</strong> {g.question.answer}</span
-              >{/if}
-            <button onclick={() => send({ t: 'dead' })}>No answer / dead</button>
-          {:else if g.phase === 'buzzed'}
-            <button class="ok" onclick={() => send({ t: 'judge', correct: true })}>Correct</button>
-            <button class="bad" onclick={() => send({ t: 'judge', correct: false })}>Incorrect</button>
-          {:else if g.phase === 'bonus' && g.question}
-            <span><strong>B{g.bonusIdx + 1} answer:</strong> {g.question.bonuses[g.bonusIdx]?.a}</span>
-            <button class="ok" onclick={() => send({ t: 'bonus', correct: true })}>Correct</button>
-            <button class="bad" onclick={() => send({ t: 'bonus', correct: false })}>Incorrect</button>
-          {:else if g.phase === 'dead'}
-            <button class="primary" onclick={() => send({ t: 'next' })}>Next question</button>
-            {#if lastRuling}
-              <button onclick={() => send({ t: 'judge', correct: !lastRuling.correct })}>
-                {solo
-                  ? lastRuling.correct
-                    ? 'I was wrong'
-                    : 'I was right'
-                  : `Override: ${lastRuling.correct ? 'incorrect' : 'correct'}`}
-              </button>
-            {/if}
-            {#if result?.bonuses.length}
-              <button onclick={() => send({ t: 'bonus', correct: !result.bonuses.at(-1) })}
-                >Flip last bonus</button
-              >
-            {/if}
-          {/if}
-        </div>
+        </ul>
       {/if}
     {/if}
   </div>
 
-  <aside>
-    <div class="card">
-      {#each g.teams as t, i}
-        <div class="bar">
-          <span>
-            <strong>{t}</strong>
-            {#if g.locked.includes(i) && (g.phase === 'reading' || g.phase === 'buzzed')}<span class="tag"
-                >locked</span
-              >{/if}
-          </span>
-          <span class="score">{totals[i]}</span>
-        </div>
-        {#if !solo}
-          <p class="muted">
-            {#each Object.values(g.players).filter((p) => p.team === i) as p (p.id)}
-              <span
-                ><span class="dot" class:on={p.online}></span>{p.name}{p.id === g.hostId ? ' (host)' : ''}
-              </span>
-            {/each}
-          </p>
+  {#if isHost}
+    <div class="card row">
+      {#if g.phase === 'reading'}
+        {#if g.mode === 'live' && g.question}<span
+            ><span class="muted">Answer</span> <strong>{g.question.answer}</strong></span
+          >{/if}
+        <button onclick={() => send({ t: 'dead' })}>No answer</button>
+      {:else if g.phase === 'buzzed'}
+        <button class="ok" onclick={() => send({ t: 'judge', correct: true })}>Correct</button>
+        <button class="bad" onclick={() => send({ t: 'judge', correct: false })}>Incorrect</button>
+      {:else if g.phase === 'bonus' && g.question}
+        <span
+          ><span class="muted">B{g.bonusIdx + 1}</span>
+          <strong>{g.question.bonuses[g.bonusIdx]?.a}</strong></span
+        >
+        <button class="ok" onclick={() => send({ t: 'bonus', correct: true })}>Correct</button>
+        <button class="bad" onclick={() => send({ t: 'bonus', correct: false })}>Incorrect</button>
+      {:else if g.phase === 'dead'}
+        <button class="primary" onclick={() => send({ t: 'next' })}>Next question</button>
+        {#if lastRuling}
+          <button onclick={() => send({ t: 'judge', correct: !lastRuling.correct })}>
+            {solo
+              ? lastRuling.correct
+                ? 'I was wrong'
+                : 'I was right'
+              : `Override: ${lastRuling.correct ? 'incorrect' : 'correct'}`}
+          </button>
         {/if}
-      {/each}
-      <p class="muted">Tossup 10 · bonus {BONUS_POINTS} each</p>
+        {#if result?.bonuses.length}
+          <button onclick={() => send({ t: 'bonus', correct: !result.bonuses.at(-1) })}
+            >Flip last bonus</button
+          >
+        {/if}
+      {/if}
     </div>
-    <div class="card">
-      <button onclick={() => (capturing = true)}>{capturing ? 'Press any key…' : `Buzz key: ${key}`}</button>
-    </div>
-    <div class="card log">
-      {#each [...g.log].reverse() as line}<div>{line}</div>{/each}
-    </div>
-  </aside>
-</div>
+  {/if}
+{/if}
+
+{#if inPlay && g.phase === 'reading'}
+  <div class="controls">
+    <button class="buzz" class:hot={canBuzz && !buzzed} onclick={buzz} disabled={!canBuzz || buzzed}>
+      {buzzed ? '…' : g.locked.includes(myTeam) ? 'LOCKED' : 'BUZZ'}
+    </button>
+  </div>
+{/if}
+
+{#if g.log.length}
+  <div class="log" style="margin-top:.75rem">
+    {#each [...g.log].reverse().slice(0, 4) as line}<div>{line}</div>{/each}
+  </div>
+{/if}
+<p class="bar muted" style="margin-top:.5rem">
+  <span>Tossup 10 · bonus {BONUS_POINTS} each</span>
+  <button class="ghost sm" onclick={() => (capturing = true)} aria-live="polite">
+    {capturing ? 'Press any key…' : `Buzz key: ${keyLabel(key)}`}
+  </button>
+</p>
