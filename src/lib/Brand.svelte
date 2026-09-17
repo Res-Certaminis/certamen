@@ -5,6 +5,6 @@
 </script>
 
 <header class="brand">
-  <a class="logo" href="/"><Buzzer size={26} />Certamen</a>
+  <a class="logo" href="/"><Buzzer size={26} />Res Certaminis</a>
   <span class="row">{@render children?.()}</span>
 </header>
