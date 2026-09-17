@@ -2,7 +2,7 @@
   /** The game UI. Used by multiplayer rooms (state from the server) and solo mode (local reducer). */
   import type { Event, Game, Mode } from '../lib/types';
   import { BONUS_POINTS, current, revealedWords, scores } from '../lib/game';
-  import { buzzKey, setBuzzKey, setPlayerName } from '../lib/store';
+  import { buzzKey, setBuzzKey } from '../lib/store';
 
   let {
     g,
@@ -152,18 +152,6 @@
         Share the code <strong style="color:var(--fg)">{g.code}</strong> or this page's link. Tap a team above to
         switch.
       </p>
-      <label
-        >Name
-        <input
-          type="text"
-          value={mine?.name ?? ''}
-          maxlength="24"
-          onchange={(e) => {
-            setPlayerName(val(e));
-            send({ t: 'rename', id: me, name: val(e) });
-          }}
-        /></label
-      >
     {/if}
     {#if isHost}
       <fieldset>
@@ -374,9 +362,24 @@
     {#each [...g.log].reverse().slice(0, 4) as line}<div>{line}</div>{/each}
   </div>
 {/if}
-<p class="bar muted" style="margin-top:.5rem">
+<div class="bar muted" style="margin-top:.5rem">
   <span>Tossup 10 · bonus {BONUS_POINTS} each</span>
-  <button class="ghost sm" onclick={() => (capturing = true)} aria-live="polite">
-    {capturing ? 'Press any key…' : `Buzz key: ${keyLabel(key)}`}
-  </button>
-</p>
+  <span class="row">
+    {#if !solo && mine}
+      <label class="muted" style="gap:.35rem"
+        >Nickname
+        <input
+          type="text"
+          class="sm"
+          value={mine.name}
+          maxlength="24"
+          style="width:9rem"
+          onchange={(e) => send({ t: 'rename', id: me, name: val(e).trim() || mine!.name })}
+        /></label
+      >
+    {/if}
+    <button class="ghost sm" onclick={() => (capturing = true)} aria-live="polite">
+      {capturing ? 'Press any key…' : `Buzz key: ${keyLabel(key)}`}
+    </button>
+  </span>
+</div>

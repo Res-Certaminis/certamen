@@ -654,6 +654,11 @@ th {
   color: var(--muted);
   letter-spacing: 0.04em;
 }
+input.sm {
+  min-height: 36px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.875rem;
+}
 select.sm {
   min-height: 36px;
   padding: 0.3rem 2rem 0.3rem 0.6rem;
