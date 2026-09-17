@@ -25,7 +25,7 @@ Browser (Svelte 5 + Vite PWA) ──WebSocket──▶ Cloudflare Worker ──�
 - **Buzz ordering is decided by the Durable Object** in arrival order, so clients can't race each other. Text reveal is time-based from a server timestamp; clients render locally and the server records which word the buzz landed on.
 - The **same pure reducer** (`src/lib/game.ts`) runs in the Durable Object and in the browser for solo mode, so rules are tested once.
 - **Data model** (Supabase Postgres): `sets` (title, level, year, tournament, region, round) → `questions` (one row each, with `category`) → `buzzes` (one row per tossup buzz: word position, tossup length, correct, mode, team, player). Sets can be starred for offline play; they are cached in `localStorage` and the app shell is precached by the service worker.
-- **Buzz analytics**: when the host (or solo player) advances past a question, every buzz on it is appended to `buzzes`, including any overrides. The reveal screen marks where each player buzzed, and `/s/<set id>` shows per-question buzz strips and a by-category conversion table. Buzz rows are appended with the public anon key (insert-only, no edits), so treat them as community data rather than audited results.
+- **Buzz analytics**: when the host (or solo player) advances past a question, every buzz on it is appended to `buzzes`, including any overrides. The reveal screen marks where each player buzzed, and `/s/<set id>` shows per-question buzz strips and a by-category conversion table. Buzz rows are appended with the publishable key (insert-only, no edits), so treat them as community data rather than audited results.
 - Packet parsing runs in the browser (mammoth for docx, pdf.js for pdf). No server compute.
 
 ### Cost
@@ -43,7 +43,7 @@ cp .env.example .env
 
 **Supabase**
 
-1. Dashboard → restore the project if paused → Project Settings → API. Put the URL and anon key in `.env`.
+1. Dashboard → restore the project if paused → Project Settings → API Keys. Put the project URL and the **publishable** key (`sb_publishable_…`) in `.env`. The secret key is never used.
 2. SQL editor → paste `supabase/migrations/0001_sets.sql` and run it (or `supabase link` then `pnpm db:push`).
 3. Authentication → Providers: enable GitHub and/or Google (OAuth needs no email sending). Email magic links also work but Supabase's built-in mailer only delivers to project members, so configure custom SMTP for that.
 4. Authentication → URL configuration: add your deployed origin and `http://localhost:5173` to redirect URLs.
@@ -63,7 +63,7 @@ pnpm exec wrangler login
 pnpm deploy       # builds and ships static assets + Worker + Durable Object
 ```
 
-Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` as GitHub secrets; `.github/workflows/deploy.yml` deploys on push to `main`.
+Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY` (the publishable key) as GitHub secrets; `.github/workflows/deploy.yml` deploys on push to `main`.
 
 ## Question format
 

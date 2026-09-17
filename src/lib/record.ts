@@ -23,12 +23,13 @@ export function buzzRows(g: Game): BuzzRow[] {
 
 export async function recordBuzzes(rows: BuzzRow[]) {
   const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  const key = import.meta.env.VITE_SUPABASE_KEY as string | undefined;
   if (!rows.length || !url || !key || !navigator.onLine) return;
   try {
     await fetch(`${url}/rest/v1/buzzes`, {
       method: 'POST',
-      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      // Publishable keys are not JWTs: send on `apikey` only, never as a Bearer token.
+      headers: { apikey: key, 'Content-Type': 'application/json' },
       body: JSON.stringify(rows),
       keepalive: true,
     });
