@@ -13,7 +13,15 @@
     CATEGORIES,
     REGIONS,
   } from '../lib/supabase';
-  import { fileToText, guessCategory, guessMeta, parseText, splitRounds, type Chunk } from '../lib/parse';
+  import {
+    fileToText,
+    guessCategory,
+    guessMeta,
+    normalizeRound,
+    parseText,
+    splitRounds,
+    type Chunk,
+  } from '../lib/parse';
   import { aiKey, setAiKey, aiModel, setAiModel } from '../lib/store';
   import { AI_MODELS, type AiModel } from '../lib/ai';
   import type { Level, Question, QuestionSet } from '../lib/types';
@@ -143,7 +151,7 @@
     j.set = {
       title: '',
       public: true,
-      round: j.round ?? r.round ?? null,
+      round: normalizeRound(j.round ?? r.round) ?? null,
       questions: r.questions.map((q) => ({
         ...q,
         category: q.category ?? guessCategory(q),

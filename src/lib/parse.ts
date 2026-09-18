@@ -137,7 +137,8 @@ export function splitRounds(text: string): { preamble: string; chunks: Chunk[] }
   const heads: { i: number; label: string }[] = [];
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i].trim();
-    if (l.length <= 60 && ROUND_LINE.test(l) && !TOSSUP.test(l)) heads.push({ i, label: titleCase(l) });
+    if (l.length <= 60 && ROUND_LINE.test(l) && !TOSSUP.test(l))
+      heads.push({ i, label: normalizeRound(l) ?? titleCase(l) });
   }
   // Same label repeated back-to-back (e.g. page headers) collapses into one chunk.
   const distinct = heads.filter((h, k) => k === 0 || h.label !== heads[k - 1].label);
@@ -285,4 +286,53 @@ export function guessCategory(q: Question): Category | null {
   };
   const best = (Object.keys(s) as Category[]).reduce((a, b) => (s[b] > s[a] ? b : a), 'Grammar');
   return s[best] ? best : null;
+}
+
+const ROMAN: Record<string, number> = { i: 1, v: 5, x: 10 };
+const WORDS = [
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+];
+function roman(s: string): number {
+  let n = 0;
+  for (let k = 0; k < s.length; k++) {
+    const v = ROMAN[s[k]];
+    const next = ROMAN[s[k + 1]] ?? 0;
+    n += v < next ? -v : v;
+  }
+  return n;
+}
+
+/**
+ * Canonical round label: "Round 1"…"Round 12", "Quarterfinal", "Semifinal", "Final".
+ * Handles "ROUND II", "Round One", "Rd. 3", "Prelim 2", "Semi-Finals", "FINALS". Unknown labels are title-cased.
+ */
+export function normalizeRound(label: string | null | undefined): string | null {
+  if (!label) return null;
+  const s = label
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return null;
+  if (/\bquarter/.test(s)) return 'Quarterfinal';
+  if (/\bsemi/.test(s)) return 'Semifinal';
+  if (/\bfinal/.test(s)) return 'Final';
+  const digit = /\b(\d{1,2})\b/.exec(s)?.[1];
+  if (digit) return `Round ${Number(digit)}`;
+  const rom = /\b([ivx]{1,5})\b/.exec(s)?.[1];
+  if (rom && !/\bi\b.*\b(am|is)\b/.test(s)) return `Round ${roman(rom)}`;
+  const word = WORDS.findIndex((w) => new RegExp(`\\b${w}\\b`).test(s));
+  if (word >= 0) return `Round ${word + 1}`;
+  return titleCase(label);
 }

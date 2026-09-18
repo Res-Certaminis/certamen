@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { guessCategory, guessMeta, parseText, splitRounds } from '../src/lib/parse';
+import { guessCategory, guessMeta, normalizeRound, parseText, splitRounds } from '../src/lib/parse';
 
 const njcl = `
 NJCL 2024 Novice Round 1
@@ -86,7 +86,7 @@ ANSWER: D`;
   it('splits a division packet into rounds and keeps the cover page as preamble', () => {
     const { preamble, chunks } = splitRounds(packet);
     expect(preamble).toBe('NJCL 2024 Certamen\nNovice Division');
-    expect(chunks.map((c) => c.round)).toEqual(['Round 1', 'Round 2', 'Semifinal Round', 'Finals']);
+    expect(chunks.map((c) => c.round)).toEqual(['Round 1', 'Round 2', 'Semifinal', 'Final']);
     expect(parseText(chunks[2].text)[0].answer).toBe('C');
   });
 
@@ -149,5 +149,22 @@ describe('guessCategory', () => {
     expect(guessCategory(q('Which emperor was assassinated in 41 AD after a short reign?'))).toBe('History');
     expect(guessCategory(q('What poet wrote the Aeneid in dactylic hexameter?'))).toBe('Literature');
     expect(guessCategory(q('Name the capital.'))).toBeNull();
+  });
+});
+
+describe('normalizeRound', () => {
+  it('maps every common heading style onto a canonical label', () => {
+    expect(normalizeRound('ROUND II')).toBe('Round 2');
+    expect(normalizeRound('Round One')).toBe('Round 1');
+    expect(normalizeRound('Rd. 3:')).toBe('Round 3');
+    expect(normalizeRound('Preliminary Round 4')).toBe('Round 4');
+    expect(normalizeRound('Round IV')).toBe('Round 4');
+    expect(normalizeRound('Semi-Finals')).toBe('Semifinal');
+    expect(normalizeRound('Semifinal Round')).toBe('Semifinal');
+    expect(normalizeRound('FINALS')).toBe('Final');
+    expect(normalizeRound('Final Round')).toBe('Final');
+    expect(normalizeRound('Quarterfinal 2')).toBe('Quarterfinal');
+    expect(normalizeRound(null)).toBeNull();
+    expect(normalizeRound('Bonus Round')).toBe('Bonus Round');
   });
 });
