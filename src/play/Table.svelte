@@ -2,7 +2,7 @@
   /** The game UI. Used by multiplayer rooms (state from the server) and solo mode (local reducer). */
   import type { Event, Game, Mode } from '../lib/types';
   import { BONUS_POINTS, current, revealedWords, scores } from '../lib/game';
-  import { buzzKey, setBuzzKey } from '../lib/store';
+  import { buzzKey, setBuzzKey, tts, setTts } from '../lib/store';
 
   let {
     g,
@@ -46,6 +46,34 @@
   const showMarkers = $derived(g.phase === 'dead' && g.mode === 'reader' && thisQ.length > 0);
 
   let key = $state(buzzKey());
+
+  // ---- Read aloud (Web Speech API), off by default. Follows the reveal: starts from the current
+  // word whenever reading (re)starts, reads each bonus, and stops on buzz/pause/dead.
+  const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  let speak = $state(canSpeak && tts());
+  let spokenKey = '';
+  function say(text: string) {
+    speechSynthesis.cancel();
+    if (!text.trim()) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = Math.min(2, Math.max(0.5, g.wpm / 175));
+    speechSynthesis.speak(u);
+  }
+  $effect(() => {
+    if (!canSpeak) return;
+    if (!speak || g.mode !== 'reader') {
+      speechSynthesis.cancel();
+      spokenKey = '';
+      return;
+    }
+    const k = `${g.qi}:${g.phase}:${g.startedAt}:${g.bonusIdx}:${g.wpm}`;
+    if (k === spokenKey) return;
+    spokenKey = k;
+    if (g.phase === 'reading') say(tossup.slice(revealedWords(g, Date.now() - skew)).join(' '));
+    else if (g.phase === 'bonus') say(g.question?.bonuses[g.bonusIdx]?.q ?? '');
+    else speechSynthesis.cancel();
+  });
+  $effect(() => () => canSpeak && speechSynthesis.cancel());
   let capturing = $state(false);
   let answer = $state('');
   let buzzed = $state(false); // optimistic, until the server confirms
@@ -397,6 +425,11 @@
           onchange={(e) => send({ t: 'rename', id: me, name: val(e).trim() || mine!.name })}
         /></label
       >
+    {/if}
+    {#if canSpeak && g.mode === 'reader'}
+      <button class="ghost sm" onclick={() => setTts((speak = !speak))} aria-pressed={speak}>
+        Read aloud: {speak ? 'on' : 'off'}
+      </button>
     {/if}
     <button class="ghost sm" onclick={() => (capturing = true)} aria-live="polite">
       {capturing ? 'Press any key…' : `Buzz key: ${keyLabel(key)}`}

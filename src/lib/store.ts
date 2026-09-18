@@ -23,6 +23,9 @@ export const setPlayerName = (n: string) => set('name', n);
 export const buzzKey = () => get('buzzKey', 'Space');
 export const setBuzzKey = (k: string) => set('buzzKey', k);
 
+export const tts = () => get('tts', false);
+export const setTts = (on: boolean) => set('tts', on);
+
 export const aiKey = () => get('anthropicKey', '');
 export const setAiKey = (k: string) => set('anthropicKey', k.trim());
 export const aiModel = () => get('anthropicModel', 'claude-opus-5');

@@ -12,7 +12,7 @@ Two game modes:
 | App reads       | The app reveals the tossup word-by-word | Buzz ordering, answer matching, bonuses, scoring         |
 | Moderator reads | A human, out loud                       | Buzzers, team lockout, scoring buttons for the moderator |
 
-Buzz with the space bar (rebindable in-game) or the big button on a phone.
+Buzz with the space bar (rebindable in-game) or the big button on a phone. Hosts can pause, change reading speed mid-question, and combine several sets into one shuffled pool. An optional "Read aloud" toggle (off by default) speaks the tossup and bonuses with the browser's built-in text-to-speech, following the reveal.
 
 ## Architecture
 
