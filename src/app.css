@@ -130,6 +130,19 @@ kbd {
   letter-spacing: -0.02em;
   text-decoration: none;
 }
+.brand .row > a,
+.brand .row > button {
+  font-size: 0.95rem;
+  font-weight: 500;
+  min-height: 36px;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  color: var(--accent-text);
+  background: transparent;
+  border-color: transparent;
+  display: inline-flex;
+  align-items: center;
+}
 .logo svg {
   flex: 0 0 auto;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));

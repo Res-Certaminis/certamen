@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { mergeSets, newGame, reduce, redact, revealedWords, scores, type Deck } from '../src/lib/game';
+import {
+  addToDeck,
+  newGame,
+  playedCount,
+  reduce,
+  redact,
+  revealedWords,
+  scores,
+  toDeck,
+  type Deck,
+} from '../src/lib/game';
 import type { Event, Game } from '../src/lib/types';
 
 const deck: Deck = {
   title: 'Test',
+  sources: ['Test'],
   questions: [
     {
       tossup: 'one two three four five six seven eight nine ten',
@@ -168,30 +179,37 @@ describe('redact', () => {
   });
 });
 
-describe('mergeSets', () => {
-  const a = {
-    title: 'A',
+describe('addToDeck', () => {
+  const mk = (t: string, n: number) => ({
+    title: t,
     public: true,
-    questions: [1, 2, 3].map((n) => ({ id: `a${n}`, tossup: `a${n}`, answer: 'x', bonuses: [] })),
-  };
-  const b = {
-    title: 'B',
-    public: true,
-    questions: [1, 2].map((n) => ({ id: `b${n}`, tossup: `b${n}`, answer: 'x', bonuses: [] })),
-  };
-  it('concatenates in order when not shuffled', () => {
-    const d = mergeSets([a, b], false);
-    expect(d.questions.map((q) => q.id)).toEqual(['a1', 'a2', 'a3', 'b1', 'b2']);
-    expect(d.title).toContain('2 sets');
+    questions: Array.from({ length: n }, (_, i) => ({
+      id: `${t}${i + 1}`,
+      tossup: `${t}${i + 1}`,
+      answer: 'x',
+      bonuses: [],
+    })),
   });
-  it('shuffles into a permutation with no repeats', () => {
-    let seed = 42;
+  const a = mk('a', 3);
+  const b = mk('b', 2);
+  it('appends in order when not shuffled and names the pool by set count', () => {
+    const d = addToDeck(toDeck(a), [b], { shuffle: false, played: 0 });
+    expect(d.questions.map((q) => q.id)).toEqual(['a1', 'a2', 'a3', 'b1', 'b2']);
+    expect(d.title).toBe('2 sets');
+    expect(d.sources).toEqual(['a', 'b']);
+  });
+  it('keeps played questions in place and shuffles only the remainder, without repeats', () => {
+    let seed = 7;
     const rand = () => (seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32;
-    const d = mergeSets([a, b], true, rand);
+    const d = addToDeck(toDeck(a), [b], { shuffle: true, played: 2 }, rand);
     const ids = d.questions.map((q) => q.id);
-    expect(ids).toHaveLength(5);
+    expect(ids.slice(0, 2)).toEqual(['a1', 'a2']);
+    expect([...ids.slice(2)].sort()).toEqual(['a3', 'b1', 'b2']);
     expect(new Set(ids).size).toBe(5);
-    expect(ids).not.toEqual(['a1', 'a2', 'a3', 'b1', 'b2']);
-    expect(d.title).toMatch(/shuffled$/);
+  });
+  it('playedCount protects the current question once play has started', () => {
+    expect(playedCount(newGame('X'))).toBe(0);
+    expect(playedCount({ ...newGame('X'), phase: 'reading', qi: 4, total: 10 })).toBe(5);
+    expect(playedCount({ ...newGame('X'), phase: 'done', qi: 9, total: 10 })).toBe(10);
   });
 });

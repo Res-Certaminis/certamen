@@ -5,6 +5,7 @@ import type { Event } from '../src/lib/types';
 
 const deck: Deck = {
   title: 'T',
+  sources: ['T'],
   questions: [
     { id: 'q1', tossup: 'a b c d e f g h', answer: 'ROMA', bonuses: [], category: 'History' },
     { tossup: 'no id so never recorded', answer: 'X', bonuses: [] },

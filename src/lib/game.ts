@@ -16,6 +16,7 @@ export function newGame(code: string): Game {
     teams: ['Team 1', 'Team 2', 'Team 3'],
     players: {},
     setTitle: '',
+    sources: [],
     total: 0,
     qi: 0,
     phase: 'lobby',
@@ -64,9 +65,48 @@ const name = (g: Game, id: string) => g.players[id]?.name ?? '?';
 export interface Deck {
   title: string;
   questions: Question[];
+  sources: string[]; // titles of the sets that make up the pool
 }
 
-export const toDeck = (s: QuestionSet): Deck => ({ title: s.title, questions: s.questions });
+export const toDeck = (s: QuestionSet): Deck => ({
+  title: s.title,
+  questions: s.questions,
+  sources: [s.title],
+});
+export const emptyDeck = (): Deck => ({ title: '', questions: [], sources: [] });
+
+/** Questions that must keep their place: everything up to and including the current one. */
+export const playedCount = (g: Game) => (g.phase === 'lobby' ? 0 : Math.min(g.qi + 1, g.total));
+
+function shuffled<T>(arr: T[], rand: () => number): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * Grow the pool: append the sets' questions after the played ones, optionally shuffling the
+ * unplayed remainder (a permutation, so nothing repeats). With no sets it just reshuffles.
+ */
+export function addToDeck(
+  deck: Deck,
+  sets: QuestionSet[],
+  opts: { shuffle: boolean; played: number },
+  rand: () => number = Math.random,
+): Deck {
+  const played = deck.questions.slice(0, opts.played);
+  let rest = [...deck.questions.slice(opts.played), ...sets.flatMap((s) => s.questions)];
+  if (opts.shuffle) rest = shuffled(rest, rand);
+  const sources = [...deck.sources, ...sets.map((s) => s.title)];
+  return {
+    title: sources.length > 1 ? `${sources.length} sets` : (sources[0] ?? ''),
+    questions: [...played, ...rest],
+    sources,
+  };
+}
 
 function loadQuestion(g: Game, deck: Deck | null) {
   g.question = deck?.questions[g.qi] ?? null;
@@ -278,26 +318,4 @@ export function redact(g: Game, forHost: boolean): Game {
     i < judged ? b : i === g.bonusIdx && g.phase === 'bonus' ? { q: b.q, a: '' } : { q: '', a: '' },
   );
   return { ...g, question: { ...q, answer: r ? q.answer : '', bonuses } };
-}
-
-/**
- * Combine several sets into one deck. With `shuffle`, the questions are a random permutation
- * (Fisher–Yates), so nothing repeats until the whole pool has been played.
- */
-export function mergeSets(
-  sets: QuestionSet[],
-  shuffle: boolean,
-  rand: () => number = Math.random,
-): QuestionSet {
-  const questions = sets.flatMap((s) => s.questions);
-  if (shuffle)
-    for (let i = questions.length - 1; i > 0; i--) {
-      const j = Math.floor(rand() * (i + 1));
-      [questions[i], questions[j]] = [questions[j], questions[i]];
-    }
-  const title =
-    sets.length === 1
-      ? sets[0].title
-      : `${sets.length} sets · ${sets.map((s) => s.title).join(', ')}`.slice(0, 80);
-  return { title: shuffle ? `${title} · shuffled` : title, public: true, questions };
 }

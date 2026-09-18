@@ -141,6 +141,7 @@ export interface Game {
   teams: string[];
   players: Record<string, Player>;
   setTitle: string;
+  sources: string[]; // titles of the sets in the pool
   total: number; // number of questions in the loaded set
   qi: number; // current question index
   phase: Phase;
@@ -177,6 +178,11 @@ export type Event =
   | { t: 'reset' };
 
 /** Client → server messages that are not game events. */
-export type ClientMsg = Event | { t: 'load'; set: QuestionSet } | { t: 'ping' };
+export type ClientMsg =
+  | Event
+  | { t: 'load'; set: QuestionSet } // replace the pool with one set
+  | { t: 'add'; sets: QuestionSet[]; shuffle: boolean } // append sets after the current question
+  | { t: 'shuffle' } // shuffle the unplayed remainder
+  | { t: 'ping' };
 export type ServerMsg =
   { t: 'state'; state: Game; now: number } | { t: 'error'; msg: string } | { t: 'pong' };

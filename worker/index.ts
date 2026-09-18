@@ -3,7 +3,16 @@
  * One Room per game code. The Room is the single source of truth for buzz ordering.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { newGame, reduce, redact, toDeck, type Deck } from '../src/lib/game';
+import {
+  addToDeck,
+  emptyDeck,
+  newGame,
+  playedCount,
+  reduce,
+  redact,
+  toDeck,
+  type Deck,
+} from '../src/lib/game';
 import type { ClientMsg, Game, ServerMsg } from '../src/lib/types';
 
 export interface Env {
@@ -65,10 +74,20 @@ export class Room extends DurableObject<Env> {
 
     // Only the host may change the deck or the game's shape. Players may only act as themselves.
     const isHost = id === this.game.hostId || !this.game.hostId;
-    if (msg.t === 'load') {
+    if (msg.t === 'load' || msg.t === 'add' || msg.t === 'shuffle') {
       if (!isHost) return;
-      this.deck = toDeck(msg.set);
-      this.game = { ...this.game, setTitle: this.deck.title, total: this.deck.questions.length };
+      if (msg.t === 'load') this.deck = toDeck(msg.set);
+      else
+        this.deck = addToDeck(this.deck ?? emptyDeck(), msg.t === 'add' ? msg.sets : [], {
+          shuffle: msg.t === 'shuffle' || msg.shuffle,
+          played: playedCount(this.game),
+        });
+      this.game = {
+        ...this.game,
+        setTitle: this.deck.title,
+        sources: this.deck.sources,
+        total: this.deck.questions.length,
+      };
       await this.ctx.storage.put({ deck: this.deck, game: this.game });
       return this.broadcast();
     }

@@ -1,6 +1,7 @@
 <script lang="ts">
   /** The game UI. Used by multiplayer rooms (state from the server) and solo mode (local reducer). */
-  import type { Event, Game, Mode } from '../lib/types';
+  import type { Event, Game, Mode, QuestionSet } from '../lib/types';
+  import SetPicker from './SetPicker.svelte';
   import { BONUS_POINTS, current, revealedWords, scores } from '../lib/game';
   import { buzzKey, setBuzzKey, tts, setTts } from '../lib/store';
 
@@ -11,6 +12,8 @@
     skew = 0,
     solo = false,
     send,
+    onadd,
+    onshuffle,
   }: {
     g: Game;
     me: string;
@@ -18,7 +21,11 @@
     skew?: number;
     solo?: boolean;
     send: (e: Event) => void;
+    onadd?: (sets: QuestionSet[], shuffle: boolean) => void;
+    onshuffle?: () => void;
   } = $props();
+  const sources = $derived(g.sources ?? []);
+  const remaining = $derived(Math.max(0, g.total - Math.min(g.qi + 1, g.total)));
 
   const ANSWER_MS = 10000;
   let now = $state(Date.now());
@@ -181,6 +188,24 @@
         switch.
       </p>
     {/if}
+    <div class="bar">
+      <span
+        ><strong>Question pool</strong>
+        <span class="muted"
+          >· {g.total} questions{sources.length > 1 ? ` from ${sources.length} sets` : ''}</span
+        ></span
+      >
+      {#if isHost && g.total > 1}<button class="ghost sm" onclick={onshuffle}>Shuffle</button>{/if}
+    </div>
+    {#if sources.length}
+      <p class="muted" style="margin:0">{sources.join(' · ')}</p>
+    {/if}
+    {#if isHost && onadd}
+      <details>
+        <summary>Add more sets</summary>
+        <div style="margin-top:.6rem"><SetPicker exclude={sources} {onadd} /></div>
+      </details>
+    {/if}
     {#if isHost}
       <fieldset>
         <legend>{solo ? 'Settings' : 'Host settings'}</legend>
@@ -228,9 +253,20 @@
     {#each g.teams as t, i}
       <div class="bar"><span>{t}</span><span class="score">{totals[i]}</span></div>
     {/each}
-    {#if isHost}<button class="primary" style="margin-top:1rem" onclick={() => send({ t: 'reset' })}
-        >Back to lobby</button
-      >{/if}
+    {#if isHost}
+      <div class="row" style="margin-top:1rem">
+        {#if remaining > 0}<button class="primary" onclick={() => send({ t: 'next' })}
+            >Continue · {remaining} more</button
+          >{/if}
+        <button onclick={() => send({ t: 'reset' })}>Back to lobby</button>
+      </div>
+      {#if onadd}
+        <details style="margin-top:.75rem">
+          <summary>Add more sets and keep playing</summary>
+          <div style="margin-top:.6rem"><SetPicker exclude={sources} {onadd} /></div>
+        </details>
+      {/if}
+    {/if}
   </div>
 {:else}
   <div class="card">
@@ -395,6 +431,16 @@
       {/if}
     </div>
   {/if}
+{/if}
+
+{#if isHost && inPlay && onadd}
+  <details class="card" style="padding:.75rem 1rem">
+    <summary
+      >Add sets to the pool <span class="muted">· {remaining} question{remaining === 1 ? '' : 's'} left</span
+      ></summary
+    >
+    <div style="margin-top:.6rem"><SetPicker exclude={sources} {onadd} /></div>
+  </details>
 {/if}
 
 {#if inPlay && (g.phase === 'reading' || g.phase === 'paused')}

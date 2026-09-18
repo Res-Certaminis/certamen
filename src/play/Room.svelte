@@ -39,7 +39,15 @@
 </script>
 
 {#if g}
-  <Table {g} {me} isHost={g.hostId === me} {skew} {send} />
+  <Table
+    {g}
+    {me}
+    isHost={g.hostId === me}
+    {skew}
+    {send}
+    onadd={(sets, shuffle) => conn?.send({ t: 'add', sets, shuffle })}
+    onshuffle={() => conn?.send({ t: 'shuffle' })}
+  />
 {:else if status === 'offline'}
   <div class="card">
     <h2>Can't reach room {code}</h2>
