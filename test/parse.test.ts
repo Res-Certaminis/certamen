@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { guessCategory, guessMeta, normalizeRound, parseText, splitRounds } from '../src/lib/parse';
+import {
+  chunksFromOutline,
+  guessCategory,
+  guessMeta,
+  normalizeRound,
+  parseText,
+  splitRounds,
+} from '../src/lib/parse';
 
 const njcl = `
 NJCL 2024 Novice Round 1
@@ -180,5 +187,34 @@ describe('answer marker', () => {
   });
   it('still accepts a bare A: at the start of a line', () => {
     expect(parseText('1. Who?\nA: CAESAR')[0].answer).toBe('CAESAR');
+  });
+});
+
+describe('chunksFromOutline', () => {
+  const text = ['Cover', 'Round A', '1. Q1?', 'A1', '2. Q2?', 'A2', 'Round B', '1. Q3?', 'A3', '2. Q4?', 'A4']
+    .map((l) => l.padEnd(100, ' '))
+    .join('\n');
+  it('slices rounds by line range, normalises labels, and keeps the cover as preamble', () => {
+    const r = chunksFromOutline(text, [
+      { round: 'Round One', startLine: 3, endLine: 6 },
+      { round: 'Semis', startLine: 8, endLine: 11 },
+    ]);
+    expect(r?.preamble.split('\n')[0].trim()).toBe('Cover');
+    expect(r?.chunks.map((c) => c.round)).toEqual(['Round 1', 'Semifinal']);
+    expect(r?.chunks[1].text.startsWith('1. Q3?')).toBe(true);
+  });
+  it('rejects overlapping, out-of-range, tiny, or low-coverage outlines', () => {
+    expect(chunksFromOutline(text, [])).toBeNull();
+    expect(
+      chunksFromOutline(text, [
+        { round: 'Round 1', startLine: 3, endLine: 8 },
+        { round: 'Round 2', startLine: 7, endLine: 11 },
+      ]),
+    ).toBeNull();
+    expect(chunksFromOutline(text, [{ round: 'Round 1', startLine: 3, endLine: 3 }])).toBeNull();
+    expect(chunksFromOutline(text, [{ round: 'Round 1', startLine: 9, endLine: 2 }])).toBeNull();
+  });
+  it('a single unnamed round stays unnamed', () => {
+    expect(chunksFromOutline(text, [{ round: null, startLine: 3, endLine: 11 }])?.chunks[0].round).toBeNull();
   });
 });

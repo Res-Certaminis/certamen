@@ -353,3 +353,53 @@ export function normalizeRound(label: string | null | undefined): string | null 
   if (word >= 0) return `Round ${word + 1}`;
   return titleCase(label);
 }
+
+export interface OutlineRound {
+  round: string | null;
+  startLine: number; // 1-based, inclusive
+  endLine: number; // 1-based, inclusive
+}
+
+/**
+ * Turn an AI-produced table of contents into chunks, or return null when it fails sanity checks
+ * (empty, out of order, overlapping, tiny rounds, or covering less than half of the text) so the
+ * caller can fall back to the rule-based splitter.
+ */
+export function chunksFromOutline(
+  text: string,
+  rounds: OutlineRound[],
+): { preamble: string; chunks: Chunk[] } | null {
+  const lines = text.replace(/\r/g, '').split('\n');
+  const L = lines.length;
+  if (!rounds.length) return null;
+  const rs = rounds
+    .map((r) => ({
+      ...r,
+      startLine: Math.max(1, Math.min(L, Math.round(r.startLine))),
+      endLine: Math.max(1, Math.min(L, Math.round(r.endLine))),
+    }))
+    .filter((r) => r.startLine <= r.endLine)
+    .sort((a, b) => a.startLine - b.startLine);
+  if (rs.length !== rounds.length) return null;
+  for (let k = 1; k < rs.length; k++) if (rs[k].startLine <= rs[k - 1].endLine) return null;
+  const chunks: Chunk[] = rs.map((r) => ({
+    round: rs.length === 1 && !r.round ? null : (normalizeRound(r.round) ?? `Round ${rs.indexOf(r) + 1}`),
+    text: lines
+      .slice(r.startLine - 1, r.endLine)
+      .filter((l) => !NOISE.test(l.trim()))
+      .join('\n')
+      .trim(),
+  }));
+  if (chunks.some((c) => c.text.length < 200 || !TOSSUP.test(c.text.split('\n').find((l) => l.trim()) ?? '')))
+    return null;
+  const covered = chunks.reduce((n, c) => n + c.text.length, 0);
+  if (covered < text.length * 0.5) return null;
+  return {
+    preamble: lines
+      .slice(0, rs[0].startLine - 1)
+      .join('\n')
+      .trim()
+      .slice(0, 3000),
+    chunks,
+  };
+}

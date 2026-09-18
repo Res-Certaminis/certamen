@@ -14,6 +14,7 @@
     REGIONS,
   } from '../lib/supabase';
   import {
+    chunksFromOutline,
     fileToText,
     guessCategory,
     guessMeta,
@@ -89,7 +90,7 @@
 
   const done = $derived(jobs.filter((j) => j.status === 'done').length);
   const failed = $derived(jobs.filter((j) => j.status === 'error').length);
-  const running = $derived(jobs.some((j) => j.status === 'parsing' || j.status === 'queued'));
+  const running = $derived(outlining || jobs.some((j) => j.status === 'parsing' || j.status === 'queued'));
   const drafts = $derived(jobs.filter((j) => j.set && j.action !== 'skip').map((j) => j.set!));
   const skipped = $derived(jobs.filter((j) => j.action === 'skip').length);
   const totalQ = $derived(drafts.reduce((n, s) => n + s.questions.length, 0));
@@ -105,16 +106,49 @@
     }
     busy = false;
   }
-  function ingest(text: string, name: string) {
+  const OUTLINE_MAX = 200_000; // chars; beyond this the rule-based splitter is used
+  let outlining = $state(false);
+  let structure = $state(''); // how the rounds were found, shown in the header
+  /**
+   * Import pipeline: find the round structure (AI first when a key is set, rules otherwise or as
+   * fallback), guess metadata, then parse every round.
+   */
+  async function ingest(text: string, name: string) {
     raw = text;
     source = name;
-    const split = splitRounds(text);
-    preamble = split.preamble;
-    jobs = split.chunks.map((c) => ({ ...c, status: 'queued', note: '', progress: 0 }));
-    meta = guessMeta(split.preamble || text);
-    if (!meta.level) meta.level = guessMeta(text).level; // the level is often only in the round headings
     stage = 'parse';
     draft = null;
+    jobs = [];
+    let split = splitRounds(text);
+    meta = guessMeta(split.preamble || text);
+    if (!meta.level) meta.level = guessMeta(text).level; // the level is often only in the round headings
+    structure = `${split.chunks.length} round${split.chunks.length === 1 ? '' : 's'} by rules`;
+    if (key && text.length <= OUTLINE_MAX) {
+      outlining = true;
+      try {
+        const { aiOutline, aiError } = await import('../lib/ai');
+        try {
+          const o = await aiOutline(text, key, model);
+          const fromAi = chunksFromOutline(text, o.rounds);
+          if (fromAi) {
+            split = fromAi;
+            structure = `${fromAi.chunks.length} round${fromAi.chunks.length === 1 ? '' : 's'} by AI`;
+            meta = {
+              tournament: o.tournament ?? meta.tournament,
+              year: o.year ?? meta.year,
+              level: o.level ?? meta.level,
+              region: o.region ?? meta.region,
+            };
+          } else structure += ' (AI outline failed its sanity check)';
+        } catch (e) {
+          structure += ` (AI outline failed: ${aiError(e)})`;
+        }
+      } finally {
+        outlining = false;
+      }
+    } else if (key) structure += ' (packet too large for an AI outline)';
+    preamble = split.preamble;
+    jobs = split.chunks.map((c) => ({ ...c, status: 'queued', note: '', progress: 0 }));
     runAll();
   }
   /** Parse every queued round: with AI (two at a time) when a key is set, otherwise instantly. */
@@ -478,8 +512,10 @@
         <div class="min">
           <h1>{source}</h1>
           <p class="muted" style="margin:0">
-            {jobs.length === 1 && !jobs[0].round ? 'One round' : `${jobs.length} rounds`}
-            {#if running}· <span class="spin"></span> parsing with {key ? model : 'rules'}{:else}· {totalQ} questions{/if}
+            {#if outlining}<span class="spin"></span> Reading the packet structure with {model}…
+            {:else}{structure ||
+                (jobs.length === 1 && !jobs[0].round ? 'One round' : `${jobs.length} rounds`)}
+              {#if running}· <span class="spin"></span> parsing with {key ? model : 'rules'}{:else}· {totalQ} questions{/if}{/if}
           </p>
         </div>
         <button class="ghost sm" onclick={reset} disabled={running}>Cancel</button>
