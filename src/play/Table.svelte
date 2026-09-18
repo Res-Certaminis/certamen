@@ -316,7 +316,7 @@
   {#if isHost}
     <div class="card row">
       {#if g.phase === 'reading'}
-        {#if g.mode === 'live' && g.question}<span
+        {#if g.mode === 'live' && g.question && !solo}<span
             ><span class="muted">Answer</span> <strong>{g.question.answer}</strong></span
           >{/if}
         <button class="primary" onclick={() => send({ t: 'pause' })}>Pause</button>
@@ -341,12 +341,18 @@
         <button class="ok" onclick={() => send({ t: 'judge', correct: true })}>Correct</button>
         <button class="bad" onclick={() => send({ t: 'judge', correct: false })}>Incorrect</button>
       {:else if g.phase === 'bonus' && g.question}
-        <span
-          ><span class="muted">B{g.bonusIdx + 1}</span>
-          <strong>{g.question.bonuses[g.bonusIdx]?.a}</strong></span
+        {#if !solo}
+          <span
+            ><span class="muted">B{g.bonusIdx + 1}</span>
+            <strong>{g.question.bonuses[g.bonusIdx]?.a}</strong></span
+          >
+        {/if}
+        <button class="ok" onclick={() => send({ t: 'bonus', correct: true })}
+          >{solo ? 'I got it' : 'Correct'}</button
         >
-        <button class="ok" onclick={() => send({ t: 'bonus', correct: true })}>Correct</button>
-        <button class="bad" onclick={() => send({ t: 'bonus', correct: false })}>Incorrect</button>
+        <button class="bad" onclick={() => send({ t: 'bonus', correct: false })}
+          >{solo ? 'Reveal / missed' : 'Incorrect'}</button
+        >
       {:else if g.phase === 'dead'}
         <button class="primary" onclick={() => send({ t: 'next' })}>Next question</button>
         {#if lastRuling}
