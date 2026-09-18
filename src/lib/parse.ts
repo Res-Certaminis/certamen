@@ -6,7 +6,8 @@ import type { Category, Question } from './types';
 
 const TOSSUP = /^\s*(?:(?:TU|T\.?U\.?|TOSS-?UP|TOSSUP)\s*#?\s*(\d+)?\s*[.:)-]?|(\d{1,2})\s*[.):])\s*/i;
 const BONUS = /^\s*(?:B\s*([123])|BONUS\s*#?\s*([123])?)\s*[.:)-]?\s*/i;
-const ANSWER = /\b(?:ANS(?:WER)?|A)\s*[.:]\s*/i;
+// "ANSWER:" / "ANS:" anywhere; a bare "A." or "A:" only at the start of a line (so "312 A.D." is not an answer).
+const ANSWER = /\bANS(?:WER)?\s*[.:]\s*|^A\s*[.:]\s*/i;
 
 export function parseText(text: string): Question[] {
   const out: Question[] = [];
@@ -29,7 +30,7 @@ export function parseText(text: string): Question[] {
 
   for (const rawLine of text.replace(/\r/g, '').split('\n')) {
     let line = rawLine.trim();
-    if (!line) continue;
+    if (!line || NOISE.test(line)) continue;
     const tu = TOSSUP.exec(line);
     const num = tu ? Number(tu[1] ?? tu[2]) : NaN;
     // A numbered line is a new tossup only if it is the next expected number (or explicit TU marker).
@@ -77,8 +78,13 @@ const answerTarget = (t: Target): Target =>
       : t;
 
 function isShoutedAnswer(line: string) {
-  const letters = line.replace(/\([^)]*\)/g, '').replace(/[^A-Za-z]/g, '');
-  return letters.length >= 2 && line.length <= 80 && letters === letters.toUpperCase() && !/\?/.test(line);
+  const letters = line
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, '')
+    .replace(/\b(?:and|or|of|the|a|an|to|in|on|is|are|for|with|should be)\b/g, '')
+    .normalize('NFD')
+    .replace(/[^A-Za-z]/g, '');
+  // An all-caps line is an answer even when it ends in '?' (translation answers often do).
+  return letters.length >= 2 && line.length <= 80 && letters === letters.toUpperCase();
 }
 
 function clean(q: Question): Question {
@@ -125,7 +131,9 @@ export interface Chunk {
 }
 
 const ROUND_LINE =
-  /^\s*(?:[A-Za-z]+\s+){0,3}(?:round|rd\.?)\s*[#:.-]?\s*(\d{1,2}|[IVX]{1,5}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\b[^?]{0,30}$|^\s*(?:semi-?finals?|finals?|preliminar(?:y|ies)\s*\d*|quarter-?finals?)\s*(?:round)?\s*$/i;
+  /^(?:[^\n?]{0,40}?[—–:-]\s*)?(?:(?:[A-Za-z]+\s+){0,3}(?:round|rd\.?)\s*[#:.-]?\s*(?:\d{1,2}|[IVX]{1,5}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\b[^?]{0,30}|(?:semi-?finals?|semis|finals?|preliminar(?:y|ies)\s*\d*|quarter-?finals?)\s*(?:round)?\s*)$/i;
+/** Moderator-only lines that are never part of a question. */
+const NOISE = /^\W*(?:score\s*check|halftime|time\s*out|end of (?:round|packet))\W*$/i;
 
 /**
  * Split a packet into rounds. Many PDFs hold a whole division (8+ rounds); each round becomes
@@ -137,7 +145,7 @@ export function splitRounds(text: string): { preamble: string; chunks: Chunk[] }
   const heads: { i: number; label: string }[] = [];
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i].trim();
-    if (l.length <= 60 && ROUND_LINE.test(l) && !TOSSUP.test(l))
+    if (l.length <= 60 && ROUND_LINE.test(l) && !TOSSUP.test(l) && !NOISE.test(l))
       heads.push({ i, label: normalizeRound(l) ?? titleCase(l) });
   }
   // Same label repeated back-to-back (e.g. page headers) collapses into one chunk.
@@ -171,26 +179,35 @@ export function guessMeta(text: string): {
   year: number | null;
 } {
   const head = text.slice(0, 4000);
+  // Title-like lines: the first dozen short lines that are not questions.
+  const cover = head
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && l.length <= 70 && !/\?/.test(l) && !TOSSUP.test(l) && !ROUND_LINE.test(l))
+    .slice(0, 12);
+  const coverText = cover.join('\n');
   const year = Number(/\b(20\d{2}|19\d{2})\b/.exec(head)?.[1]) || null;
   const level = (/\b(novice|intermediate|advanced)\b/i.exec(head)?.[1].toLowerCase() ?? null) as
     'novice' | 'intermediate' | 'advanced' | null;
-  if (/\bN\.?J\.?C\.?L\.?\b|National Junior Classical League/i.test(head))
+  if (/\bN\.?J\.?C\.?L\.?\b|National Junior Classical League/i.test(coverText))
     return { tournament: 'NJCL', region: 'National', level, year };
   const st = STATES.find((s) =>
-    new RegExp(`\\b${s}\\s+(?:Junior Classical League|J\\.?C\\.?L\\.?)`, 'i').test(head),
+    new RegExp(`\\b${s}\\s+(?:Junior Classical League|J\\.?C\\.?L\\.?)`, 'i').test(coverText),
   );
   if (st) return { tournament: `${st} JCL`, region: st, level, year };
-  const college = /^[^\n]*\b(?:University|College|Institute)\b[^\n]*$/im.exec(head)?.[0].trim();
-  if (college)
-    return {
-      tournament: college.replace(/\s+/g, ' ').slice(0, 60),
-      region: 'Competitive Circuit',
-      level,
-      year,
-    };
-  const school = /^[^\n]*\b(?:High School|Academy|Prep(?:aratory)?)\b[^\n]*$/im.exec(head)?.[0].trim();
-  const state = STATES.find((s) => new RegExp(`\\b${s}\\b`).test(head)) ?? null;
-  if (school) return { tournament: school.replace(/\s+/g, ' ').slice(0, 60), region: state, level, year };
+  const state = STATES.find((s) => new RegExp(`\\b${s}\\b`).test(coverText)) ?? null;
+  const clean = (l: string) =>
+    l
+      .replace(/\b(?:20|19)\d{2}\b/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/[\s—–-]+$/, '')
+      .trim();
+  const school = cover.find((l) => /\b(?:High School|Academy|Prep(?:aratory)?)\b/i.test(l));
+  if (school) return { tournament: clean(school), region: state, level, year };
+  const named = cover.find((l) =>
+    /\b(?:University|College|Institute|Certamen|Invitational|Tournament)\b/i.test(l),
+  );
+  if (named) return { tournament: clean(named), region: state ?? 'Competitive Circuit', level, year };
   return { tournament: null, region: state, level, year };
 }
 

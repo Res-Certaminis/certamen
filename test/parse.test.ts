@@ -125,9 +125,10 @@ describe('guessMeta', () => {
   });
   it('labels college-hosted invitationals as Competitive Circuit', () => {
     expect(guessMeta('Yale University Certamen Invitational 2025\nIntermediate Division')).toMatchObject({
-      tournament: 'Yale University Certamen Invitational 2025',
+      tournament: 'Yale University Certamen Invitational',
       region: 'Competitive Circuit',
       level: 'intermediate',
+      year: 2025,
     });
   });
   it('uses the state for a high-school host and returns nulls when nothing is stated', () => {
@@ -166,5 +167,18 @@ describe('normalizeRound', () => {
     expect(normalizeRound('Quarterfinal 2')).toBe('Quarterfinal');
     expect(normalizeRound(null)).toBeNull();
     expect(normalizeRound('Bonus Round')).toBe('Bonus Round');
+  });
+});
+
+describe('answer marker', () => {
+  it('does not treat "A.D." inside a question as an answer marker', () => {
+    const qs = parseText(
+      'TU 1: Who won at the Milvian Bridge in 312 A.D. after a vision?\nANSWER: CONSTANTINE',
+    );
+    expect(qs[0].tossup).toBe('Who won at the Milvian Bridge in 312 A.D. after a vision?');
+    expect(qs[0].answer).toBe('CONSTANTINE');
+  });
+  it('still accepts a bare A: at the start of a line', () => {
+    expect(parseText('1. Who?\nA: CAESAR')[0].answer).toBe('CAESAR');
   });
 });
