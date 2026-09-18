@@ -90,6 +90,9 @@
 
   const done = $derived(jobs.filter((j) => j.status === 'done').length);
   const failed = $derived(jobs.filter((j) => j.status === 'error').length);
+  const OUTLINE_MAX = 200_000; // chars; beyond this the rule-based splitter is used
+  let outlining = $state(false);
+  let structure = $state(''); // how the rounds were found, shown in the header
   const running = $derived(outlining || jobs.some((j) => j.status === 'parsing' || j.status === 'queued'));
   const drafts = $derived(jobs.filter((j) => j.set && j.action !== 'skip').map((j) => j.set!));
   const skipped = $derived(jobs.filter((j) => j.action === 'skip').length);
@@ -106,9 +109,6 @@
     }
     busy = false;
   }
-  const OUTLINE_MAX = 200_000; // chars; beyond this the rule-based splitter is used
-  let outlining = $state(false);
-  let structure = $state(''); // how the rounds were found, shown in the header
   /**
    * Import pipeline: find the round structure (AI first when a key is set, rules otherwise or as
    * fallback), guess metadata, then parse every round.
