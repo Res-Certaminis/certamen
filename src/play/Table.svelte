@@ -358,11 +358,6 @@
               : `Override: ${lastRuling.correct ? 'incorrect' : 'correct'}`}
           </button>
         {/if}
-        {#if result?.bonuses.length}
-          <button onclick={() => send({ t: 'bonus', correct: !result.bonuses.at(-1) })}
-            >Flip last bonus</button
-          >
-        {/if}
       {/if}
     </div>
   {/if}
