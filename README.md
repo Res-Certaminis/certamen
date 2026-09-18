@@ -1,36 +1,90 @@
-# Certamen
+# Res Certaminis
 
-Open-source [certamen](https://www.njcl.org/Students/Certamen) (Latin quiz bowl) app. Two small web apps:
+Open-source [certamen](https://www.njcl.org/Students/Certamen) (Latin quiz bowl) app. Live at **https://play.certamen.workers.dev**.
 
-- **Play** (`/`): multiplayer rooms with server-ordered buzzing, solo practice, and an installable offline PWA.
-- **Upload** (`/upload/`): drop a `.docx`/`.pdf`/`.txt` packet, fix the parse in place, publish the set.
+- **Play** (`/`): multiplayer rooms with server-ordered buzzing, solo practice, buzz analytics, and an installable PWA that works offline.
+- **Upload** (`/upload/`): drop a `.pdf`, `.docx` or `.txt` packet (a whole division at once is fine), review the parse, publish one set per round.
 
-Two game modes:
+## Playing
 
 | Mode            | Who reads                               | The app does                                             |
 | --------------- | --------------------------------------- | -------------------------------------------------------- |
 | App reads       | The app reveals the tossup word-by-word | Buzz ordering, answer matching, bonuses, scoring         |
 | Moderator reads | A human, out loud                       | Buzzers, team lockout, scoring buttons for the moderator |
 
-Buzz with the space bar (rebindable in-game) or the big button on a phone. Hosts can pause, change reading speed mid-question, and grow the question pool from the lobby or mid-round by adding more sets (optionally shuffling the unplayed remainder). Sets you have played are cached on the device for offline practice. An optional "Read aloud" toggle (off by default) speaks the tossup and bonuses with the browser's built-in text-to-speech, following the reveal.
+- **Rooms.** The host picks a set on the home page, shares a short code, players join from any phone or laptop. Default is three teams; the host can rename them and set one to six. Players pick a team in the lobby and can set a nickname for that room only.
+- **Buzzing.** Space bar by default (rebindable per device) or the big button on a phone. The server decides buzz order in arrival order, so clients cannot race each other. A wrong tossup answer locks out the whole team for that tossup.
+- **Question pool.** In the lobby, or at any point during play, the host can add more sets to the pool and optionally shuffle the unplayed remainder. Shuffling is a permutation, so nothing repeats until the pool is exhausted. Played questions never move.
+- **Host controls.** Pause and resume (the reveal freezes and resumes from the same word), reading speed slider that works mid-question, "No answer", correct/incorrect rulings, and an override for the last ruling.
+- **Read aloud.** Off by default. Uses the browser's built-in text-to-speech to speak the tossup from the current word and each bonus, following pause and speed.
+- **Solo practice.** Same rules, same reducer, self-judged. Any set you have played is cached on the device, so solo works offline.
+- **Scoring.** Tossup 10, each bonus 5 (NJCL). Bonuses go to the team that answered the tossup.
+
+### Buzz analytics
+
+When a question is advanced, every buzz on it is recorded: which question, how many words had been revealed, tossup length, correct or not, mode, team and nickname. Overrides made before advancing are included. The reveal screen marks where each player buzzed on the text, and `/s/<set id>` (linked from every set on the home page) shows a buzz strip per question and a by-category conversion table.
+
+Rows are appended with the public key under an insert-only policy, so treat them as community data rather than audited results.
+
+## Importing packets
+
+Three steps: **Packet → Parse → Review & save.**
+
+1. **Packet.** Drop a file or paste text. Text is extracted in the browser (pdf.js, mammoth). Nothing is uploaded until you save.
+2. **Parse.** The importer first finds the round structure. With an Anthropic key, one cheap call returns a table of contents (round line ranges plus tournament, year, level, region); it is sanity-checked and otherwise a rule-based heading splitter is used. Each round then parses in parallel, four at a time, with a live "N questions so far" count, per-round retry, and the whole import saved in `localStorage` so closing the tab loses nothing; on return you are offered **Resume**.
+3. **Review & save.** Shared tournament / year / level / region fields apply to every round and title them ("Harvard Certamen 2025 Intermediate · Round 3"). Rounds open individually; question cards are read-only until tapped. Before saving, the importer checks for **public** sets with the same tournament, year, level and round: matches are skipped, or replaced in place if you own them (question ids are kept by position so buzz history survives). Second copies of a public round cannot be uploaded. "Save all" publishes every remaining round.
+
+Round labels are normalised to `Round N`, `Quarterfinal`, `Semifinal`, `Final` ("ROUND II", "Round One", "Semis", "FINALS" all map correctly).
+
+### AI parsing (bring your own key)
+
+Uploaders may paste their own Anthropic API key on the upload page. It is stored only in that browser's `localStorage` and sent only to `api.anthropic.com`; there is no server in between. With a key, Claude does the structure pass and parses each round with a structured-output schema (tossup, answer with `(accept …)` alternates kept verbatim, up to three bonuses, category and subcategory, plus set metadata). Default model is Claude Opus 5; Sonnet 5 and Haiku 4.5 are offered as cheaper options. A 20-question round is roughly 6k input and 4k output tokens.
+
+Without a key, a rule-based parser runs. It handles common packet styles and assigns categories by keyword, and the review screen is there to fix what it misses.
+
+### Question format (rule-based parser)
+
+```
+TU 1: What Roman god of the sea carried a trident?
+ANSWER: NEPTUNE
+B1: Who was his Greek counterpart?
+ANSWER: POSEIDON
+```
+
+```
+1. Give the Latin for "and".
+ET
+B1: Now give an enclitic meaning "and".
+-QUE
+```
+
+Numbered tossups, `TU`/`Tossup` markers, `B1`/`Bonus` markers, `ANSWER:`/`ANS:`/line-initial `A:`, and bare all-caps answer lines are recognised. Moderator-only lines such as `**SCORE CHECK**` are ignored.
+
+## Data model
+
+Supabase Postgres, schema in `supabase/migrations/`:
+
+- `sets`: title, `level` (novice / intermediate / advanced), `year`, `tournament`, `region`, `round`, `public`, owner.
+- `questions`: one row per tossup with `idx`, `tossup`, `answer`, `bonuses` (JSON), `category`, `subcategory`.
+- `buzzes`: one row per tossup buzz (question, room, mode, player, team, word, words, correct, answer).
+
+`region` is `National` for NJCL, a US state for state JCL events and school-hosted tournaments, or `Competitive Circuit` for open invitationals (usually college-hosted). Each question has one of four main categories, `Grammar`, `History`, `Mythology`, `Literature`, plus an optional free-text `subcategory` such as "Subjunctive" or "Second Punic War" for finer analytics. Grammar includes vocabulary, derivatives, translation and mottoes; History includes culture, daily life and geography.
+
+Row-level security: anyone can read public sets and their questions; only the owner can write; buzz rows are append-only for everyone.
 
 ## Architecture
 
 ```
 Browser (Svelte 5 + Vite PWA) ──WebSocket──▶ Cloudflare Worker ──▶ Room Durable Object (one per code)
         │                                                                 └─ src/lib/game.ts reducer
-        └──REST──▶ Supabase (Postgres `sets` table, Auth for uploaders)
+        └──REST──▶ Supabase (Postgres, Auth for uploaders)
+        └──HTTPS──▶ api.anthropic.com (uploader's own key, optional)
 ```
 
-- **Buzz ordering is decided by the Durable Object** in arrival order, so clients can't race each other. Text reveal is time-based from a server timestamp; clients render locally and the server records which word the buzz landed on.
-- The **same pure reducer** (`src/lib/game.ts`) runs in the Durable Object and in the browser for solo mode, so rules are tested once.
-- **Data model** (Supabase Postgres): `sets` (title, level, year, tournament, region, round) → `questions` (one row each, with `category`) → `buzzes` (one row per tossup buzz: word position, tossup length, correct, mode, team, player). Sets can be starred for offline play; they are cached in `localStorage` and the app shell is precached by the service worker.
-- **Buzz analytics**: when the host (or solo player) advances past a question, every buzz on it is appended to `buzzes`, including any overrides. The reveal screen marks where each player buzzed, and `/s/<set id>` shows per-question buzz strips and a by-category conversion table. Buzz rows are appended with the publishable key (insert-only, no edits), so treat them as community data rather than audited results.
-- Packet parsing runs in the browser (mammoth for docx, pdf.js for pdf), optionally followed by an AI pass with the uploader's own Anthropic key. No server compute.
-
-### Cost
-
-Everything fits the free tiers: Cloudflare Workers + Durable Objects (static assets included), Supabase free project. There is no server to keep warm. Supabase pauses free projects after a week without activity; unpause from the dashboard, or store sets offline.
+- The Durable Object is the single source of truth for a room. It applies events through the pure reducer in `src/lib/game.ts`, persists state, and broadcasts. Solo mode runs the same reducer in the browser, so rules are tested once.
+- Text reveal is time-based from a server timestamp; clients render locally and the server records the word each buzz landed on.
+- The player bundle is small; the packet parsers and the Anthropic SDK load lazily on the upload page only.
+- **Cost.** Everything fits free tiers: Cloudflare Workers + Durable Objects (static assets included), Supabase free project. There is no server to keep warm. Supabase pauses free projects after a week without traffic; restore from the dashboard.
 
 ## Setup
 
@@ -43,73 +97,32 @@ cp .env.example .env
 
 **Supabase**
 
-1. Dashboard → restore the project if paused → Project Settings → API Keys. Put the project URL and the **publishable** key (`sb_publishable_…`) in `.env`. The secret key is never used.
+1. Project Settings → API Keys. Put the project URL and the **publishable** key (`sb_publishable_…`) in `.env`. The secret key is never used.
 2. SQL editor → run each file in `supabase/migrations/` in order (or `supabase link` then `pnpm db:push`).
-3. Authentication → Providers: enable GitHub and/or Google (OAuth needs no email sending). Email magic links also work but Supabase's built-in mailer only delivers to project members, so configure custom SMTP for that.
-4. Authentication → URL configuration: add your deployed origin and `http://localhost:5173` to redirect URLs.
+3. Authentication → Providers: enable Google and/or GitHub (OAuth needs no email sending). Magic links also work, but Supabase's built-in mailer only delivers to project members unless you configure SMTP.
+4. Authentication → URL configuration: add `https://<your worker>.workers.dev/**` and `http://localhost:5173/**` to Redirect URLs.
 
 **Run locally**
 
 ```sh
-pnpm dev          # http://localhost:5173 (Vite) proxies /ws to the Worker on :8787
-pnpm test
-pnpm check
+pnpm dev          # Vite on :5173 proxies /ws to the Worker on :8787
+pnpm test         # vitest
+pnpm check        # svelte-check + worker types
+pnpm smoke        # two-client WebSocket test against a running worker
 ```
 
 **Deploy**
 
 ```sh
 pnpm exec wrangler login
-pnpm run deploy       # builds and ships static assets + Worker + Durable Object
+pnpm run deploy   # builds and ships static assets + Worker + Durable Object
 ```
 
-Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY` (the publishable key) as GitHub secrets; `.github/workflows/deploy.yml` deploys on push to `main`.
+Or set the `DEPLOY` repository variable to `true` and add `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY` as GitHub secrets; `.github/workflows/deploy.yml` deploys on push to `main`.
 
-## Importing packets
+## Design
 
-The upload page walks through three steps: pick a file (or paste text), parse, review and save. A PDF or Word file often holds a whole division. With an Anthropic key, a cheap first call asks the model for a table of contents (round boundaries by line number plus tournament, year, level and region); the result is sanity-checked (ordered, non-overlapping, covers the text) and otherwise the rule-based heading splitter is used. Each round becomes its own set, titled from the shared metadata. Every round shows its own parse status with a retry button, and one "Save all" button publishes them together. Rounds can be opened individually to fix questions before saving. Before saving, the importer looks for **public** sets with the same tournament, year, level and round; matching rounds are skipped, with a "Replace mine" option (keeps question ids by position, so buzz history survives) when you own the existing set. Second copies of a public round cannot be uploaded. Private sets are never consulted.
-
-## AI parsing (bring your own key)
-
-The built-in parser is heuristic. For messy packets, the upload page instead sends each round's text to Claude automatically when a key is saved with structured output, using the uploader's own Anthropic API key. The key is kept in that browser's `localStorage` and sent only to `api.anthropic.com`; there is no server in between. The model also fills in set metadata (level, year, tournament, round) and a category per tossup when the packet states them. Default model is Claude Opus 5; Sonnet 5 and Haiku 4.5 are offered as cheaper options. A 30-question packet is roughly 8k input and 6k output tokens. Code lives in `src/lib/ai.ts` and loads lazily, so players never download it.
-
-## Question format
-
-The parser is forgiving. Any of these work, and you can edit the result before saving:
-
-```
-TU 1: What Roman god of the sea carried a trident?
-ANSWER: NEPTUNE
-B1: Who was his Greek counterpart?
-ANSWER: POSEIDON
-B2: Name Neptune's wife.
-ANSWER: SALACIA (accept AMPHITRITE)
-```
-
-```
-1. Give the Latin for "and".
-ET
-Bonus 1: Now give an enclitic meaning "and".
--QUE
-```
-
-Parenthetical `(accept …)` alternates are honoured by the answer matcher; `(do not accept …)` is ignored.
-
-## Metadata
-
-Sets carry `level` (novice / intermediate / advanced), `year`, `tournament`, `region`, and `round`. `region` is "National" for NJCL, a US state for state JCL events and school-hosted tournaments, or "Competitive Circuit" for open invitationals (usually college-hosted). The importer guesses these from the packet's cover text and the AI parser confirms them.
-
-Each question has one of four main categories, `Grammar`, `History`, `Mythology`, `Literature`, plus an optional free-text `subcategory` (e.g. "Subjunctive", "Derivatives", "Second Punic War") for finer analytics. Grammar includes vocabulary, derivatives, translation and mottoes; History includes culture, daily life and geography. The home page filters by level; the stats page groups by category.
-
-## Metadata
-
-Sets carry `level` (novice / intermediate / advanced), `year`, `tournament`, `region`, and `round`. `region` is "National" for NJCL, a US state for state JCL events and school-hosted tournaments, or "Competitive Circuit" for open invitationals (usually college-hosted). The importer guesses these from the packet's cover text and the AI parser confirms them.
-
-Each question has one of four main categories, `Grammar`, `History`, `Mythology`, `Literature`, plus an optional free-text `subcategory` (e.g. "Subjunctive", "Derivatives", "Second Punic War") for finer analytics. Grammar includes vocabulary, derivatives, translation and mottoes; History includes culture, daily life and geography. The home page filters by level; the stats page groups by category.
-
-## Scoring
-
-Tossup 10, each bonus 5 (NJCL). A wrong tossup answer locks out the whole team for that tossup. The host can override any ruling.
+Dark gradient theme, Inter, Roman purple accent. Every foreground/background token pair is checked for WCAG AAA (7:1) contrast in `test/contrast.test.ts`, so CI fails if a colour change drops below it. Mobile-first: 44 px touch targets, safe-area padding, sticky buzz button.
 
 ## Contributing
 
