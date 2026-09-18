@@ -112,7 +112,9 @@
     preamble = split.preamble;
     jobs = split.chunks.map((c) => ({ ...c, status: 'queued', note: '', progress: 0 }));
     meta = guessMeta(split.preamble || text);
+    if (!meta.level) meta.level = guessMeta(text).level; // the level is often only in the round headings
     stage = 'parse';
+    draft = null;
     runAll();
   }
   /** Parse every queued round: with AI (two at a time) when a key is set, otherwise instantly. */
@@ -161,6 +163,7 @@
     j.status = r.questions.length ? 'done' : 'error';
     j.note = r.questions.length ? `${r.questions.length} questions` : 'No questions found';
     retitle();
+    persist();
     if (!running) stage = 'review';
   }
   /** Titles follow the shared metadata: "NJCL 2024 Novice · Round 3". */
@@ -173,6 +176,7 @@
       Object.assign(j.set, meta);
     }
     checkDupes();
+    persist();
   }
   /** Warn about rounds that are already public for this tournament, year and level. */
   async function checkDupes() {
@@ -248,7 +252,57 @@
     jobs = [];
     raw = '';
     editing = null;
+    localStorage.removeItem(DRAFT_KEY);
+    draft = null;
   }
+
+  // ---- Resilience: the import lives in localStorage until it is saved, so closing the tab
+  // mid-parse loses nothing. Finished rounds are kept; unfinished ones re-run on resume.
+  const DRAFT_KEY = 'importDraft';
+  interface Draft {
+    source: string;
+    raw: string;
+    preamble: string;
+    meta: Meta;
+    jobs: Job[];
+    savedAt: number;
+  }
+  let draft = $state<Draft | null>(readDraft());
+  function readDraft(): Draft | null {
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null;
+      return d?.jobs?.length ? d : null;
+    } catch {
+      return null;
+    }
+  }
+  function persist() {
+    if (!jobs.length || !raw) return;
+    const snapshot: Draft = {
+      source,
+      raw,
+      preamble,
+      meta,
+      jobs: jobs.map((j) => ({ ...j, status: j.status === 'parsing' ? 'queued' : j.status, progress: 0 })),
+      savedAt: Date.now(),
+    };
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot));
+    } catch {
+      /* quota exceeded: carry on without a safety net */
+    }
+  }
+  function resume() {
+    if (!draft) return;
+    ({ source, raw, preamble } = draft);
+    meta = draft.meta;
+    jobs = draft.jobs.map((j) => ({ ...j, status: j.status === 'parsing' ? 'queued' : j.status }));
+    draft = null;
+    stage = jobs.some((j) => j.status === 'queued') ? 'parse' : 'review';
+    if (stage === 'parse') runAll();
+    else retitle();
+  }
+  const draftDone = $derived(draft?.jobs.filter((j) => j.status === 'done').length ?? 0);
   async function edit(s: QuestionSet) {
     try {
       const full = await getSet(s.id!);
@@ -272,6 +326,12 @@
   }
   const blank = (): Question => ({ tossup: '', answer: '', bonuses: [], category: null, subcategory: null });
 </script>
+
+<svelte:window
+  onbeforeunload={(e) => {
+    if (running) e.preventDefault();
+  }}
+/>
 
 <main>
   <Brand>
@@ -309,6 +369,28 @@
 
     {#if stage === 'pick'}
       <h1>Import a packet</h1>
+      {#if draft}
+        <div class="card bar" style="border-color:rgba(196,181,253,.45)">
+          <span class="min">
+            <strong>Unfinished import: {draft.source}</strong>
+            <span class="muted"
+              >{draftDone} of {draft.jobs.length} rounds parsed · {new Date(
+                draft.savedAt,
+              ).toLocaleString()}</span
+            >
+          </span>
+          <span class="row">
+            <button class="primary sm" onclick={resume}>Resume</button>
+            <button
+              class="ghost sm"
+              onclick={() => {
+                localStorage.removeItem(DRAFT_KEY);
+                draft = null;
+              }}>Discard</button
+            >
+          </span>
+        </div>
+      {/if}
       <p class="muted">A PDF or Word file can hold a whole division. Each round becomes its own set.</p>
       <div class="card stack">
         <input type="file" accept=".docx,.pdf,.txt" onchange={onFile} disabled={busy} />
